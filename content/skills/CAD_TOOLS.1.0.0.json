@@ -1,0 +1,20 @@
+{
+  "Id": "CAD_TOOLS",
+  "Name": "Chat CAD và thao tác tự do",
+  "Version": "1.0.0",
+  "Enabled": true,
+  "TemplateId": "ARCHITECTURE",
+  "Builder": "custom",
+  "RequiredTools": [
+    "draw_line",
+    "draw_polyline",
+    "draw_circle",
+    "draw_arc",
+    "add_text",
+    "insert_block",
+    "add_dimension",
+    "create_hatch"
+  ],
+  "RequiredInputs": [],
+  "Workflow": []
+}

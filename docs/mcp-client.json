@@ -1,0 +1,5 @@
+{
+  "note": "Generic stdio MCP client example. Start Host and load AutoCAD plugin first. Do not import this file as a Codex config directly; adapt to the client's documented format.",
+  "command": "powershell.exe",
+  "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "G:\\Du An MCP\\AI-CAD-MCP\\tools\\Start-Mcp.ps1"]
+}

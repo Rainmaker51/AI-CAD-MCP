@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net48</TargetFramework><OutputType>Exe</OutputType><AssemblyName>AICad.HashCompat</AssemblyName></PropertyGroup><ItemGroup><ProjectReference Include="../CAD.Contracts/CAD.Contracts.csproj"/></ItemGroup></Project>

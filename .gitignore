@@ -1,0 +1,15 @@
+**/bin/
+**/obj/
+.tools/
+artifacts/
+data/
+
+data-*/
+
+content-assets/
+storage/*
+!storage/README.md
+tests/fixtures/
+tests/results/
+tools/storage-organizer/
+warehouse.local.json

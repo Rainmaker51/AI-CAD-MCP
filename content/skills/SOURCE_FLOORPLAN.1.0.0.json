@@ -1,0 +1,18 @@
+{
+  "Id": "SOURCE_FLOORPLAN",
+  "Name": "Mặt bằng từ PDF hoặc ảnh đã hiệu chuẩn",
+  "Version": "1.0.0",
+  "Enabled": true,
+  "TemplateId": "ARCHITECTURE",
+  "Builder": "source",
+  "RequiredTools": [
+    "draw_line",
+    "draw_polyline",
+    "insert_block"
+  ],
+  "RequiredInputs": [
+    "sourceId",
+    "confirmGeometry"
+  ],
+  "Workflow": []
+}

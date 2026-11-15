@@ -1,0 +1,133 @@
+{
+  "Id": "ARCHITECTURE",
+  "Name": "AI CAD Architecture - acceptance profile",
+  "Version": "1.0.0",
+  "Units": "mm",
+  "Layers": [
+    {
+      "Name": "A-AI",
+      "Color": 7
+    },
+    {
+      "Name": "A-WALL",
+      "Color": 7
+    },
+    {
+      "Name": "A-COLUMN",
+      "Color": 1
+    },
+    {
+      "Name": "A-DOOR",
+      "Color": 3
+    },
+    {
+      "Name": "A-AXIS",
+      "Color": 4
+    },
+    {
+      "Name": "A-TEXT",
+      "Color": 7
+    },
+    {
+      "Name": "A-DIM",
+      "Color": 2
+    },
+    {
+      "Name": "A-HATCH",
+      "Color": 8
+    },
+    {
+      "Name": "A-STAIR",
+      "Color": 6
+    },
+    {
+      "Name": "A-FLOOR",
+      "Color": 4
+    }
+  ],
+  "Blocks": [
+    {
+      "Id": "DOOR_900",
+      "Geometry": [
+        {
+          "Kind": "draw_line",
+          "Points": [
+            {
+              "X": 0,
+              "Y": 0
+            },
+            {
+              "X": 0,
+              "Y": 900
+            }
+          ]
+        },
+        {
+          "Kind": "draw_line",
+          "Points": [
+            {
+              "X": 0,
+              "Y": 0
+            },
+            {
+              "X": 900,
+              "Y": 0
+            }
+          ]
+        },
+        {
+          "Kind": "draw_arc",
+          "Points": [
+            {
+              "X": 0,
+              "Y": 0
+            }
+          ],
+          "Radius": 900,
+          "Rotation": 0
+        }
+      ]
+    },
+    {
+      "Id": "AXIS_1",
+      "Geometry": [
+        {
+          "Kind": "draw_circle",
+          "Points": [
+            {
+              "X": 0,
+              "Y": 0
+            }
+          ],
+          "Radius": 150
+        },
+        {
+          "Kind": "add_text",
+          "Points": [
+            {
+              "X": -45,
+              "Y": -60
+            }
+          ],
+          "Height": 120,
+          "Text": "1"
+        }
+      ]
+    }
+  ],
+  "TextHeight": 100,
+  "ArrowSize": 80,
+  "Font": "txt.shx",
+  "Presets": {
+    "stair": {
+      "floorHeight": 3600,
+      "risers": 20,
+      "riser": 180,
+      "tread": 270,
+      "flightWidth": 1000,
+      "landing": 1200,
+      "slabThickness": 120,
+      "confirmedByUser": true
+    }
+  }
+}

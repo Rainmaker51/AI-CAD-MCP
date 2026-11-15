@@ -1,0 +1,226 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "summary": {
+      "type": "string"
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "Kind": {
+            "type": "string",
+            "enum": [
+              "draw_line",
+              "draw_polyline",
+              "draw_circle",
+              "draw_arc",
+              "add_text",
+              "insert_block",
+              "add_dimension",
+              "create_hatch",
+              "draw_wall"
+            ]
+          },
+          "Points": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "X": {
+                  "type": "number"
+                },
+                "Y": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "X",
+                "Y"
+              ]
+            }
+          },
+          "Radius": {
+            "type": "number"
+          },
+          "Rotation": {
+            "type": "number"
+          },
+          "Height": {
+            "type": "number"
+          },
+          "Text": {
+            "type": "string"
+          },
+          "AssetId": {
+            "type": "string"
+          },
+          "Layer": {
+            "type": "string"
+          },
+          "Closed": {
+            "type": "boolean"
+          },
+          "Pattern": {
+            "type": "string"
+          },
+          "PatternScale": {
+            "type": "number"
+          },
+          "Style": {
+            "type": "string"
+          },
+          "DynamicJson": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "OpeningWidth": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "WallThickness": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "Kind",
+          "Points",
+          "Radius",
+          "Rotation",
+          "Height",
+          "Text",
+          "AssetId",
+          "Layer",
+          "Closed",
+          "Pattern",
+          "PatternScale",
+          "Style",
+          "DynamicJson",
+          "OpeningWidth",
+          "WallThickness"
+        ]
+      }
+    },
+    "rotationUnits": {
+      "type": "string",
+      "enum": [
+        "radians"
+      ]
+    },
+    "openingEvidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operationIndex": {
+            "type": "integer"
+          },
+          "mark": {
+            "type": "string",
+            "enum": [
+              "frame_between_jambs",
+              "leaf_or_swing"
+            ]
+          },
+          "pixelA": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "X": {
+                "type": "number"
+              },
+              "Y": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "X",
+              "Y"
+            ]
+          },
+          "pixelB": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "X": {
+                "type": "number"
+              },
+              "Y": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "X",
+              "Y"
+            ]
+          },
+          "jambA": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "X": {
+                "type": "number"
+              },
+              "Y": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "X",
+              "Y"
+            ]
+          },
+          "jambB": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "X": {
+                "type": "number"
+              },
+              "Y": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "X",
+              "Y"
+            ]
+          }
+        },
+        "required": [
+          "operationIndex",
+          "mark",
+          "pixelA",
+          "pixelB",
+          "jambA",
+          "jambB"
+        ]
+      }
+    }
+  },
+  "required": [
+    "summary",
+    "assumptions",
+    "operations",
+    "rotationUnits",
+    "openingEvidence"
+  ]
+}

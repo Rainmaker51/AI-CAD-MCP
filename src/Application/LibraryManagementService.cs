@@ -1,0 +1,12 @@
+using System;
+using System.Linq;
+using AICad.Contracts;
+using Newtonsoft.Json.Linq;
+namespace AICad.Application;
+public sealed class LibraryManagementService(WorkspaceService workspace){
+ void Exists(string kind,string id){LibraryCatalog.Kind(kind);if(!workspace.Store.Ids(kind).Contains(id))throw new CadException("NOT_FOUND",id);}
+ public object State(string kind){LibraryCatalog.Kind(kind);return new{groups=workspace.Catalog.Groups(kind),items=workspace.Store.Ids(kind).Where(id=>!workspace.Retired(kind,id)).Select(id=>{var m=workspace.Catalog.Label(kind,id);string original=kind=="skills"?workspace.Store.Skill(id).Name:workspace.Store.Template(id).Name;return new{Id=id,Name=m.Name==""?original:m.Name,m.GroupId,m.DeletedUtc,originalName=original};}).ToList()};}
+ public object Update(JObject p){string kind=p.Value<string>("kind")??"",id=p.Value<string>("id")??"";Exists(kind,id);return workspace.Catalog.Update(kind,id,p.Value<string>("name")??"",p.Value<string>("groupId")??"");}
+ public object Delete(JObject p,bool restore){string kind=p.Value<string>("kind")??"",id=p.Value<string>("id")??"";Exists(kind,id);return workspace.Catalog.Edit(()=>{if(!restore){var active=workspace.History().Where(r=>new[]{"READY","PREVIEW","DISPATCHED","UNKNOWN"}.Contains(r.Status)&&(kind=="skills"?r.Plan.SkillId==id:r.Plan.Template.Id==id)).ToList();if(active.Count>0)throw new CadException("RESOURCE_IN_USE","Còn "+active.Count+" kế hoạch đang chờ hoặc cần đối soát. Hoàn tất/hủy kế hoạch trước.");if(kind=="templates"){var consumers=workspace.TemplateConsumers(id).Where(s=>!workspace.Retired("skills",s)).ToList();if(consumers.Count>0)throw new CadException("DEPENDENCY_IMPACT","Thư viện đang được Skill sử dụng: "+string.Join(", ",consumers)+". Đổi thư viện cho Skill hoặc xóa Skill trước.");}}else if(kind=="skills"){var s=workspace.Store.Skill(id);workspace.Catalog.Available("templates",s.TemplateId);workspace.ValidateSkill(s);}return workspace.Catalog.Trash(kind,id,!restore);});}
+ public object Group(JObject p){string kind=p.Value<string>("kind")??"";if(p.Value<string>("action")=="remove"){workspace.Catalog.RemoveGroup(kind,p.Value<string>("id")??"");return new{status="REMOVED"};}return workspace.Catalog.Group(kind,p.Value<string>("id")??"",p.Value<string>("name")??"");}
+}

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AI CAD — Không gian triển khai</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Đến nội dung chính</a>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark">A<span>↗</span></span><div>AI CAD<span class="brand-sub">MCP WORKSPACE</span></div></div>
+    <div class="project"><span class="project-icon">NT</span><div><strong>Nhà phố An Phú</strong><small>Dự án kiến trúc · 2026</small></div></div>
+    <div class="eyebrow nav-label">KHÔNG GIAN LÀM VIỆC</div>
+    <nav aria-label="Điều hướng chính" id="nav"></nav>
+    <div class="sidebar-bottom"><div class="connection"><span class="dot"></span><div><strong>MCP đang kết nối</strong><small>2 phiên AutoCAD · Dữ liệu mẫu</small></div></div><button class="nav-item" id="theme-toggle">◐ <span>Đổi giao diện</span></button><div class="profile"><span class="avatar">KT</span><div><strong>Kiến trúc sư</strong><small>Không gian cá nhân</small></div><span class="version">v0.1</span></div></div>
+  </aside>
+  <div class="shell">
+    <header class="topbar"><div class="breadcrumb">Dự án <span>/</span> Nhà phố An Phú <span>/</span> <strong id="crumb">Triển khai</strong></div><div class="top-actions"><span class="prototype-tag">BẢN MẪU TƯƠNG TÁC</span><button class="icon-button" id="help" aria-label="Hướng dẫn bản mẫu">?</button></div></header>
+    <main id="main" tabindex="-1"></main>
+    <footer class="statusbar"><span><span class="dot"></span> Mô phỏng cục bộ · Chưa kết nối CAD thật</span><span>PLAN MCP NEW <span class="separator">│</span> Đơn vị: mm</span></footer>
+  </div>
+</div>
+<dialog id="review" aria-labelledby="review-title"><div class="dialog-head"><div><span class="eyebrow">AUTOCAD PALETTE · MÔ PHỎNG</span><h2 id="review-title">Duyệt thay đổi bản vẽ</h2></div><button class="icon-button" id="close-dialog" aria-label="Đóng hộp thoại">×</button></div><div id="review-content"></div><div class="dialog-actions"><button id="cancel-plan" class="button">Hủy xem trước</button><button id="apply-plan" class="button primary">Duyệt & áp dụng mẫu</button></div></dialog>
+<div class="toast" role="status" aria-live="polite" id="toast" hidden></div>
+<script src="app.js"></script>
+</body></html>

@@ -1,0 +1,23 @@
+{
+  "Id": "SOURCE_FLOORPLAN",
+  "Name": "Máº·t báº±ng tá»« PDF hoáº·c áº£nh Ä‘Ã£ hiá»‡u chuáº©n",
+  "Version": "1.1.0",
+  "Enabled": true,
+  "TemplateId": "ARCHITECTURE",
+  "Builder": "source",
+  "RequiredTools": [
+    "draw_line",
+    "draw_polyline",
+    "draw_circle",
+    "draw_arc",
+    "add_text",
+    "insert_block",
+    "add_dimension",
+    "create_hatch"
+  ],
+  "RequiredInputs": [
+    "sourceId",
+    "confirmGeometry"
+  ],
+  "Workflow": []
+}

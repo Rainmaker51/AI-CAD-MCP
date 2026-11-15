@@ -1,0 +1,134 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "message": {
+      "type": "string"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "explain",
+        "needs_input",
+        "custom_plan",
+        "skill_plan"
+      ]
+    },
+    "inputsJson": {
+      "type": "string"
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "Kind": {
+            "type": "string",
+            "enum": [
+              "draw_line",
+              "draw_polyline",
+              "draw_circle",
+              "draw_arc",
+              "add_text",
+              "insert_block",
+              "add_dimension",
+              "create_hatch",
+              "draw_wall"
+            ]
+          },
+          "Points": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "X": {
+                  "type": "number"
+                },
+                "Y": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "X",
+                "Y"
+              ]
+            }
+          },
+          "Radius": {
+            "type": "number"
+          },
+          "Rotation": {
+            "type": "number"
+          },
+          "Height": {
+            "type": "number"
+          },
+          "Text": {
+            "type": "string"
+          },
+          "AssetId": {
+            "type": "string"
+          },
+          "Layer": {
+            "type": "string"
+          },
+          "Closed": {
+            "type": "boolean"
+          },
+          "Pattern": {
+            "type": "string"
+          },
+          "PatternScale": {
+            "type": "number"
+          },
+          "Style": {
+            "type": "string"
+          },
+          "DynamicJson": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "OpeningWidth": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "WallThickness": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "Kind",
+          "Points",
+          "Radius",
+          "Rotation",
+          "Height",
+          "Text",
+          "AssetId",
+          "Layer",
+          "Closed",
+          "Pattern",
+          "PatternScale",
+          "Style",
+          "DynamicJson",
+          "OpeningWidth",
+          "WallThickness"
+        ]
+      }
+    }
+  },
+  "required": [
+    "message",
+    "action",
+    "inputsJson",
+    "operations"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "Id": "BUILDING_SECTION",
+  "Name": "Mặt cắt kiến trúc từ DWG nguồn",
+  "Version": "1.0.0",
+  "Enabled": true,
+  "TemplateId": "ARCHITECTURE",
+  "Builder": "BUILDING_SECTION",
+  "RequiredTools": [
+    "draw_line",
+    "draw_polyline",
+    "add_text",
+    "add_dimension",
+    "create_hatch"
+  ],
+  "RequiredInputs": [
+    "floorHeight",
+    "floors",
+    "slabThickness",
+    "confirmed",
+    "source"
+  ],
+  "Workflow": []
+}

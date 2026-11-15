@@ -1,0 +1,27 @@
+{
+  "Id": "STAIR_SECTION",
+  "Name": "Mặt cắt cầu thang từ DWG nguồn",
+  "Version": "1.0.0",
+  "Enabled": true,
+  "TemplateId": "ARCHITECTURE",
+  "Builder": "STAIR_SECTION",
+  "RequiredTools": [
+    "draw_line",
+    "draw_polyline",
+    "add_text",
+    "add_dimension",
+    "create_hatch"
+  ],
+  "RequiredInputs": [
+    "floorHeight",
+    "risers",
+    "riser",
+    "tread",
+    "flightWidth",
+    "landing",
+    "slabThickness",
+    "confirmed",
+    "source"
+  ],
+  "Workflow": []
+}
