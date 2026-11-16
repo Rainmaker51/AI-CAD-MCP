@@ -1,6 +1,6 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const escape=s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');
-const ctx={document:{addEventListener(){}},esc:escape,libraryManager:{templates:{data:{groups:[{Id:'a',Name:'Kiến trúc',ParentId:''},{Id:'b',Name:'Cửa',ParentId:'a'},{Id:'c',Name:'Cửa sổ',ParentId:'b'}]},group:'a'}},state:{templates:[{Id:'T',GroupId:'c'}]}};
+const ctx={librarySourceDetails:hash=>'File nguồn:'+(hash||''),document:{addEventListener(){}},esc:escape,libraryManager:{templates:{data:{groups:[{Id:'a',Name:'Kiến trúc',ParentId:''},{Id:'b',Name:'Cửa',ParentId:'a'},{Id:'c',Name:'Cửa sổ',ParentId:'b'}]},group:'a'}},state:{templates:[{Id:'T',GroupId:'c'}]}};
 vm.createContext(ctx);vm.runInContext(fs.readFileSync('src/Desktop.Host/wwwroot/library-tree.js','utf8'),ctx);
 assert(ctx.libraryGroupContains('templates','a','c'));assert(!ctx.libraryGroupContains('templates','c','a'));
 assert.equal(ctx.libraryGroupPath('templates','c'),'Kiến trúc / Cửa / Cửa sổ');
@@ -28,7 +28,7 @@ vm.runInContext(fs.readFileSync('src/Desktop.Host/wwwroot/block-groups.js','utf8
 vm.runInContext(`libraryManager.blocks.data={groups:[{Id:'ba',Name:'Kiến trúc',ParentId:''},{Id:'bb',Name:'Cửa',ParentId:'ba'}]};blockGrouping={templateId:'T',items:[{Name:'DOOR',GroupId:'bb'},{Name:'TEST',GroupId:''}]};blockGroupSelected='ba';blockLibrary.Blocks=[{Id:'DOOR',Geometry:[]},{Id:'TEST',Geometry:[]}];blockFilter='';`,ctx);
 assert(ctx.blockGroupMatches('DOOR'));assert(!ctx.blockGroupMatches('TEST'));
 assert(ctx.blockTreeNav().includes('Quản lý nhóm block'));
-assert(ctx.blockBrowserContent().includes('data-block-move="DOOR"'));
+assert(!ctx.blockBrowserContent().includes('data-block-move="DOOR"'));
 assert(ctx.blockBrowserContent().includes('data-block-check="DOOR"'));
 assert(!ctx.blockBrowserContent().includes('block-inspector'));
 assert(ctx.blockBrowserContent().includes('block-catalog-grid'));

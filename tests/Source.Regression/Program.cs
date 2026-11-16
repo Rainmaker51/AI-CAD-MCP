@@ -88,3 +88,60 @@ try{service.AssignBlocks(assignment);throw new Exception("Accepted layer group f
 catalog.RemoveGroup("blocks",blockDoors.Id);
 Assert(JObject.FromObject(service.BlockState(sourceTemplate.Id))["items"]![0]!.Value<string>("GroupId")=="");
 Console.WriteLine("PASS: independent block groups, rename, bulk assignment, foreign group rejection, safe removal");
+var hatches=new HatchLibraryService(config);
+Assert(((JArray)hatches.Read()["items"]!).Count==0);
+string hatchRoot=System.IO.Path.Combine(temp,"Hatches","ISO_QUANGANH"),hatchVersion=System.IO.Path.Combine(hatchRoot,"1.0.0");
+System.IO.Directory.CreateDirectory(hatchVersion);string hatchId=new string('a',64),imagePath=System.IO.Path.Combine(hatchVersion,Json.Hash(hatchId)+".png");
+System.IO.File.WriteAllBytes(imagePath,new byte[]{1,2,3});
+string catalogFile=System.IO.Path.Combine(hatchVersion,"catalog.json");
+Json.Atomic(catalogFile,new{version="1.0.0",items=new[]{new{id=hatchId,imageFile=hatchId+".png",imageHash=Json.FileHash(imagePath)}}});
+Json.Atomic(System.IO.Path.Combine(hatchRoot,"active.json"),new{version="1.0.0",checksum=Json.FileHash(catalogFile)});
+Assert(hatches.Image(hatchId)==imagePath);
+string hatchChecksum=Json.FileHash(catalogFile);
+var editHatch=JObject.FromObject(new{id=hatchId,revision=0,name="Bê tông mặt cắt",purpose="Ký hiệu bê tông trong mặt cắt",notes="Kiểm tra tỷ lệ trước khi dùng",reviewed=true,action="update"});
+hatches.Update(editHatch);Assert(hatches.SkillContext().Count==1);
+Assert(hatches.Read()["items"]![0]!["management"]!.Value<string>("Purpose")=="Ký hiệu bê tông trong mặt cắt");
+Assert(Json.FileHash(catalogFile)==hatchChecksum);
+try{hatches.Update(editHatch);throw new Exception("Accepted stale hatch edit");}catch(CadException e) when(e.Code=="RESOURCE_CHANGED"){}
+hatches.Update(JObject.FromObject(new{id=hatchId,revision=1,action="delete"}));Assert(hatches.SkillContext().Count==0);
+hatches.Update(JObject.FromObject(new{id=hatchId,revision=2,action="restore"}));Assert(hatches.SkillContext().Count==1);
+editHatch["revision"]=3;editHatch["purpose"]="";
+try{hatches.Update(editHatch);throw new Exception("Reviewed hatch without purpose");}catch(CadException e) when(e.Code=="PURPOSE_REQUIRED"){}
+var hg=catalog.Group("hatches","","Bê tông");editHatch["purpose"]="Concrete";editHatch["groupId"]=hg.Id;hatches.Update(editHatch);
+catalog.RemoveGroup("hatches",hg.Id);
+Assert(hatches.Read()["items"]![0]!["management"]!.Value<string>("Purpose")=="Concrete");
+Assert(hatches.Read()["items"]![0]!["management"]!.Value<string>("GroupId")=="");
+Console.WriteLine("PASS: hatch notes, review gate, delete/restore, stale edits, source unchanged, group removal preserves notes");
+System.IO.File.AppendAllText(imagePath,"changed");
+try{hatches.Image(hatchId);throw new Exception("Accepted changed hatch image");}catch(CadException e) when(e.Code=="RESOURCE_CHANGED"){}
+try{hatches.Image("../../outside");throw new Exception("Accepted unknown hatch image");}catch(CadException e) when(e.Code=="NOT_FOUND"){}
+System.IO.File.AppendAllText(catalogFile," ");
+try{hatches.Read();throw new Exception("Accepted changed hatch catalog");}catch(CadException e) when(e.Code=="RESOURCE_CHANGED"){}
+Console.WriteLine("PASS: empty hatch library, validated image path, unknown ID and integrity checks");
+Assert(SourceAnnotationText.Decode("Bª t«ng cèt thÐp","QA_VnArial")=="Bê tông cốt thép");
+Assert(SourceAnnotationText.Decode("§¸ tù nhiªn ( mÆt ®øng )","QA_VnArial")=="Đá tự nhiên ( mặt đứng )");
+Assert(SourceAnnotationText.Decode("CỬA ĐI","Arial")=="CỬA ĐI");
+var styles=new StyleLibraryService(config);Assert(((JArray)styles.Read("texts")["items"]!).Count==0);
+string styleRoot=System.IO.Path.Combine(temp,"Styles","ISO_QUANGANH"),styleVersion=System.IO.Path.Combine(styleRoot,"1.0.0");System.IO.Directory.CreateDirectory(styleVersion);
+string styleFile=System.IO.Path.Combine(styleVersion,"catalog.json");var styleId=Json.Hash("Standard");
+Json.Atomic(styleFile,new{version="1.0.0",texts=new[]{new{id=styleId,name="Standard",font="arial.ttf"}},dims=new[]{new{id=styleId,name="Standard",scale=1}}});Json.Atomic(System.IO.Path.Combine(styleRoot,"active.json"),new{version="1.0.0",checksum=Json.FileHash(styleFile)});
+var styleEdit=JObject.FromObject(new{id=styleId,revision=0,action="update",name="Text ghi chú",purpose="Ghi chú bản vẽ",reviewed=true});styles.Update("texts",styleEdit);
+Assert(styles.SkillContext("texts").Count==1&&styles.SkillContext("dims").Count==0);
+styles.Update("texts",JObject.FromObject(new{id=styleId,revision=1,action="delete"}));Assert(styles.SkillContext("texts").Count==0);
+styles.Update("texts",JObject.FromObject(new{id=styleId,revision=2,action="restore"}));Assert(styles.SkillContext("texts").Count==1);
+Console.WriteLine("PASS: TCVN3 conversion, separate Text/Dim metadata, review and delete/restore");
+string openSource=System.IO.Path.Combine(temp,"open-source.dwg"),copiedSource=System.IO.Path.Combine(temp,"copied-source.dwg");System.IO.File.WriteAllText(openSource,"source snapshot");
+using(var open=new System.IO.FileStream(openSource,System.IO.FileMode.Open,System.IO.FileAccess.ReadWrite,System.IO.FileShare.ReadWrite)){
+ string sharedHash=CadSourceFile.Hash(openSource);CadSourceFile.Copy(openSource,copiedSource);Assert(Json.FileHash(copiedSource)==sharedHash);
+}
+Console.WriteLine("PASS: shared read of open DWG source with verified snapshot");
+string originals=System.IO.Path.Combine(temp,"CAD","Originals");System.IO.Directory.CreateDirectory(originals);
+string baseDwg=System.IO.Path.Combine(originals,CadSourceFile.BaseLibraryName),otherDwg=System.IO.Path.Combine(originals,"NoiThat.dwg");
+System.IO.File.WriteAllText(baseDwg,"base source");System.IO.File.WriteAllText(otherDwg,"different library");
+var sourceDetails=JObject.FromObject(CadSourceFile.Describe(temp,Json.FileHash(otherDwg)));
+Assert(sourceDetails.Value<string>("name")=="NoiThat.dwg"&&sourceDetails.Value<string>("path")==otherDwg&&sourceDetails.Value<bool>("originalFound"));
+string importedHash=Json.FileHash(baseDwg);System.IO.File.AppendAllText(baseDwg," edited after import");
+var historicalDetails=JObject.FromObject(CadSourceFile.Describe(temp,importedHash));
+Assert(!historicalDetails.Value<bool>("originalFound")&&historicalDetails.Value<string>("path")==System.IO.Path.Combine(temp,"content-assets",importedHash+".dwg"));
+try{CadSourceFile.Describe(temp,"../outside");throw new Exception("Accepted invalid source hash");}catch(CadException e)when(e.Code=="INVALID_SOURCE"){}
+Console.WriteLine("PASS: source paths match each DWG by hash, historical fallback and path traversal rejection");

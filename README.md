@@ -1,6 +1,6 @@
-# AI CAD MCP — không gian làm việc 0.4
+# AI CAD MCP — AutoCAD 2021 / CAD Tool Manager 0.7.2
 
-App mới phát triển theo `../PLAN MCP NEW.md`. Giao diện tại `design/` là cơ sở UX; app thật nằm trong `src/`, không chạy bằng dữ liệu mô phỏng.
+Hướng dẫn cài mới và chuyển sang máy khác: **[INSTALL-SECOND-MACHINE.md](docs/INSTALL-SECOND-MACHINE.md)**. Mã nguồn và script cài đặt nằm trong repo; dữ liệu DWG, nhóm, ghi chú và công cụ dùng chung nằm trong kho thư viện được đồng bộ riêng.
 
 ## Chat và tài khoản AI — bản mở rộng 0.2
 
@@ -95,3 +95,9 @@ Dữ liệu nặng đã được phân nhóm trong `storage/01-test-data`, `02-a
 Bản 0.5 đã tách kho chung ra ngoài app, thêm đường dẫn kho trong Cài đặt, gộp Quang Anh 288 block và hỗ trợ điểm AI_OUTPUT_POINT trong DWG đang kết nối. Xem [hướng dẫn kho và điểm đặt](docs/WAREHOUSE-AND-PLACEMENT.md).
 
 Hướng dẫn block động, bộ layer chung và trình tạo Skill: [docs/BLOCK-LAYER-SKILL-GUIDE.md](docs/BLOCK-LAYER-SKILL-GUIDE.md).
+
+## CAD Tool Manager 0.7 — AutoCAD 2021
+
+`AICADTOOLS` mở palette C#/WPF với **LISP Manager**, **.NET Add-in Manager** và **MCP Connector**. Danh mục công cụ dùng chung trong kho, có nhóm, ghi chú công dụng, phiên bản file và thùng rác. Nạp/chạy mã tại AutoCAD; MCP có `list_cad_utilities` để tra cứu danh mục.
+
+Hướng dẫn sử dụng, giới hạn nạp lại .NET Framework và cấu hình Codex/Claude: [docs/CAD-TOOL-MANAGER.md](docs/CAD-TOOL-MANAGER.md). Hai repo tham khảo và giấy phép: [third_party/TOOL-MANAGER-SOURCES.md](third_party/TOOL-MANAGER-SOURCES.md).

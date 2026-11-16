@@ -30,6 +30,8 @@ if(!File.Exists(Path.Combine(config.ContentRoot,"warehouse.local.json")))SeedCon
 string token=Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
 var builder=WebApplication.CreateBuilder(new WebApplicationOptions{Args=args,ContentRootPath=AppContext.BaseDirectory,WebRootPath=Path.Combine(AppContext.BaseDirectory,"wwwroot")});builder.Logging.ClearProviders();builder.WebHost.ConfigureKestrel(o=>{o.Listen(IPAddress.Loopback,0);o.Limits.MaxRequestBodySize=25*1024*1024;});builder.Services.AddSingleton(config);builder.Services.AddSingleton<CadClient>();builder.Services.AddSingleton<WorkspaceService>();builder.Services.AddSingleton<LibraryService>();builder.Services.AddSingleton<LibraryManagementService>();builder.Services.AddSingleton<DraftingLibraryService>();builder.Services.AddSingleton<WarehouseService>();builder.Services.AddSingleton<ImagePlanService>();builder.Services.AddSingleton<ImageWorkspaceService>();builder.Services.AddSingleton<TaskOrchestrator>();builder.Services.AddSingleton<AiAccounts>();builder.Services.AddSingleton<ChatService>();builder.Services.AddHostedService<BatchWorker>();builder.Services.AddSingleton<PdfSourcePages>();builder.Services.AddSingleton<SourceQueue>();builder.Services.AddHostedService(sp=>sp.GetRequiredService<SourceQueue>());
 builder.Services.AddSingleton<BlockPreviewService>();
+builder.Services.AddSingleton<HatchLibraryService>();
+builder.Services.AddSingleton<StyleLibraryService>();
 new LibraryCatalog(config.ContentRoot).EnsureTemplateGroups();
 new LibraryCatalog(config.ContentRoot).EnsureLayerGroups();
 new LibraryCatalog(config.ContentRoot).EnsureBlockGroups();
@@ -71,6 +73,16 @@ app.MapPost("/api/library-management/restore",async(HttpContext ctx,LibraryManag
 app.MapPost("/api/library-management/group",async(HttpContext ctx,LibraryManagementService svc)=>Out(svc.Group(await Body(ctx))));
 app.MapGet("/api/library/{kind}/{id}",(string kind,string id,HttpContext ctx,LibraryService svc)=>Out(svc.Content(kind,id,ctx.Request.Query["version"].FirstOrDefault())));
 app.MapGet("/api/block-previews/{id}",(string id,BlockPreviewService svc)=>Out(svc.Read(id)));
+app.MapGet("/api/hatch-library",(HatchLibraryService svc)=>Out(svc.Read()));
+app.MapGet("/api/cad-tools",()=>Out(new CadToolCatalog(config.ContentRoot).Read().Items.Where(t=>!t.DeletedUtc.HasValue).Select(t=>new{t.Id,t.Name,t.Kind,t.Group,t.Notes,t.Enabled,t.Commands,t.FileHash,path=new CadToolCatalog(config.ContentRoot).PathFor(t)})));
+app.MapGet("/api/cad-tools/mcp-config",()=>Out(CadToolMcpConfig.Create(config)));
+app.MapGet("/api/library-source/{hash}",(string hash)=>Out(CadSourceFile.Describe(config.ContentRoot,hash)));
+app.MapGet("/api/style-library/{kind}",(string kind,StyleLibraryService svc)=>Out(svc.Read(kind)));
+app.MapPost("/api/style-library/import",async(StyleLibraryService svc,HttpContext ctx)=>Out(await svc.Import(ctx.RequestAborted)));
+app.MapPost("/api/style-library/{kind}/manage",async(string kind,StyleLibraryService svc,HttpContext ctx)=>Out(svc.Update(kind,await Body(ctx))));
+app.MapPost("/api/hatch-library/manage",async(HttpContext ctx,HatchLibraryService svc)=>Out(svc.Update(await Body(ctx))));
+app.MapPost("/api/hatch-library/import",async(HatchLibraryService svc,HttpContext ctx)=>Out(await svc.Import(ctx.RequestAborted)));
+app.MapGet("/api/hatch-library/{id}/image",(string id,HatchLibraryService svc)=>Results.File(svc.Image(id),"image/png"));
 app.MapGet("/api/block-previews/{id}/{blockId}/image",(string id,string blockId,BlockPreviewService svc)=>Results.File(svc.Image(id,blockId),"image/png"));
 app.MapPost("/api/block-previews/{id}",async(string id,BlockPreviewService svc,HttpContext ctx)=>Out(await svc.Generate(id,ctx.RequestAborted)));
 app.MapPost("/api/library/validate",async(HttpContext ctx,LibraryService svc)=>{var p=await Body(ctx);return Out(svc.Validate(Text(p,"kind"),p["content"] as JObject??new()));});

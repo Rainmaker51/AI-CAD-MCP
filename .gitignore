@@ -23,3 +23,25 @@ warehouse.local.json
 
 # Generated review workbooks, screenshots, reports and warehouse backups.
 /outputs/
+
+# Upstream repositories are downloaded by tools/Get-ToolManagerReferences.ps1.
+/third_party/reference/
+
+# Local warehouse fallback and credentials are never application source.
+/CAD/
+/Catalog/
+/Hatches/
+/Styles/
+/tools/catalog.json
+/tools/lisp/
+/tools/dotnet/
+/Versions/
+/Sources/
+/.vs/
+/.aws/
+/.codex/
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12

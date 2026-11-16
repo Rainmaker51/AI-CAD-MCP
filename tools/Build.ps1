@@ -20,6 +20,7 @@ try {
   $dest=if($name -eq 'CAD.Bridge.AutoCAD'){'AutoCAD'}elseif($name -eq 'Desktop.Host'){'Host'}else{'MCP'}
   & $sdk publish "src/$name/$name.csproj" --no-restore -c Release -o "$buildRoot/$Release/$dest"
   if($LASTEXITCODE -ne 0){throw "Build failed: $name"}
+  if($name -eq 'CAD.Bridge.AutoCAD'){[Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $buildRoot "$Release/$dest/CAD.Bridge.AutoCAD.dll")).FileVersion | Set-Content -LiteralPath (Join-Path $buildRoot "$Release/$dest/plugin-version.txt") -Encoding ascii}
  }
  if($Component -eq 'All' -or $Component -eq 'Host'){
   & $sdk publish 'src/CAD.HashCompat/CAD.HashCompat.csproj' -c Release -o "$buildRoot/$Release/Host/HashCompat"

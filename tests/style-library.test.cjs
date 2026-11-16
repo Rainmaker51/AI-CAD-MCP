@@ -1,0 +1,11 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const ctx={librarySourceDetails:hash=>'File nguồn:'+(hash||''),libraryManager:{},librarySearchText:s=>String(s).toLowerCase(),libraryGroupContains:()=>true,esc:String,blockNumber:String,blockInfo:(l,v)=>l+':'+v,document:{addEventListener(){}},libraryDialog:(title,body,footer)=>ctx.dialog={title,body,footer}};
+vm.createContext(ctx);vm.runInContext(fs.readFileSync('src/Desktop.Host/wwwroot/style-library.js','utf8'),ctx);
+vm.runInContext(`styleCatalogs.texts={items:[{id:'t',name:'TextStyle',font:'arial.ttf',management:{Purpose:'Note'}}]};styleCatalogs.dims={items:[{id:'d',name:'DIM_KT',textHeight:2.5,arrowSize:2.5,scale:100,management:{}}]}`,ctx);
+assert(ctx.styleContent('texts').includes('arial.ttf'));assert(ctx.styleContent('dims').includes('DIM_KT'));
+ctx.styleDetail('texts','t');assert(ctx.dialog.footer.includes('data-style-edit'));assert(ctx.dialog.body.includes('arial.ttf'));
+vm.runInContext(`styleCatalogs.dims.items[0].management.DeletedUtc='2026-11-16'`,ctx);
+assert(!ctx.styleContent('dims').includes('DIM_KT'));
+vm.runInContext(`styleFilters.dims.trash=true`,ctx);assert(ctx.styleContent('dims').includes('DIM_KT'));
+ctx.styleDetail('dims','d');assert(ctx.dialog.footer.includes('data-style-restore'));
+console.log('PASS: Text/Dim listing, properties, independent trash, restore controls');

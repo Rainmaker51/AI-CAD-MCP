@@ -56,21 +56,22 @@ try {
   string sessions=Path.Combine(config.DataRoot,"sessions");
   if(Directory.Exists(sessions))foreach(string file in Directory.EnumerateFiles(sessions,"*.json"))try{
    var session=Json.Read<SessionInfo>(File.ReadAllText(file));
-   if((DateTime.UtcNow-session.HeartbeatUtc).TotalSeconds>20||(!Version.TryParse(session.PluginVersion,out var pluginVersion)||pluginVersion<new Version(0,6,4)))continue;
+   if((DateTime.UtcNow-session.HeartbeatUtc).TotalSeconds>20||(!Version.TryParse(session.PluginVersion,out var pluginVersion)||pluginVersion<new Version(0,7,2)))continue;
    using var cad=Process.GetProcessById(session.ProcessId);
    if(cad.ProcessName.Equals("acad",StringComparison.OrdinalIgnoreCase)&&cad.StartTime.ToUniversalTime().Ticks==session.ProcessStartTicks&&cad.MainWindowHandle!=IntPtr.Zero){cadPid=cad.Id;reused=true;break;}
   }catch(Exception e)when(e is IOException||e is ArgumentException||e is InvalidOperationException||e is CadException){}
   if(!reused){
    string cadExe=@"C:\Program Files\Autodesk\AutoCAD 2021\acad.exe";
-   string plugin=Path.Combine(buildRoot,"p0-p6-axis-test","AutoCAD","CAD.Bridge.AutoCAD.dll");
-   string pluginConfig=Path.Combine(buildRoot,"p0-p6-axis-test","install.json");
-   if(!File.Exists(cadExe)||!File.Exists(plugin))throw new Exception("Không tìm thấy AutoCAD 2021 hoặc plugin 0.6.4.");
+   var nativeRelease=new[]{"p0-p6-tools-dark","p0-p6"}.Select(name=>new{Path=Path.Combine(buildRoot,name),Marker=Path.Combine(buildRoot,name,"AutoCAD","plugin-version.txt")}).Where(x=>File.Exists(x.Marker)).Select(x=>new{Root=x.Path,Version=Version.TryParse(File.ReadAllText(x.Marker).Trim(),out var version)?version:new Version(0,0)}).Where(x=>x.Version>=new Version(0,7,2)).OrderByDescending(x=>x.Version).FirstOrDefault()??throw new Exception("Build lại plugin AutoCAD 0.7.2 để mở CAD Tool Manager dark mode.");
+   string plugin=Path.Combine(nativeRelease.Root,"AutoCAD","CAD.Bridge.AutoCAD.dll");
+   string pluginConfig=Path.Combine(nativeRelease.Root,"install.json");
+   if(!File.Exists(cadExe)||!File.Exists(plugin))throw new Exception("Không tìm thấy AutoCAD 2021 hoặc plugin 0.7.2.");
    var native=Json.Read<InstallConfig>(File.ReadAllText(pluginConfig));
    if(native.DataRoot!=config.DataRoot||native.HostExecutable!=config.HostExecutable)throw new Exception("Plugin và app chưa dùng chung cấu hình kết nối.");
    string launch=Path.Combine(config.DataRoot,"drawings","launch-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(launch);
    string drawing=Path.Combine(launch,"AI-CAD-START.dwg"),script=Path.Combine(launch,"load-plugin.scr");
    File.Copy(Path.Combine(root,"content","launch","blank-mm.dwg"),drawing);
-   File.WriteAllText(script,"_NETLOAD\n\""+plugin.Replace('\\','/')+"\"\nAICAD\n",Encoding.ASCII);
+   File.WriteAllText(script,"_NETLOAD\n\""+plugin.Replace('\\','/')+"\"\nAICADTOOLS\n",Encoding.ASCII);
    var cad=new ProcessStartInfo(cadExe){UseShellExecute=false,WindowStyle=ProcessWindowStyle.Normal};
    cad.ArgumentList.Add(drawing);cad.ArgumentList.Add("/nologo");cad.ArgumentList.Add("/b");cad.ArgumentList.Add(script);
    using var child=Process.Start(cad)??throw new Exception("Không mở được AutoCAD.");cadPid=child.Id;

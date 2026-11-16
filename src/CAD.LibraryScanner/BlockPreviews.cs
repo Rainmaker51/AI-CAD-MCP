@@ -19,7 +19,7 @@ using System.Xml.Linq;
 namespace AICad.LibraryScanner;
 public sealed class BlockPreviews {
  // Fixed-size PNGs keep CAD geometry out of the JSON response entirely.
- static void Thumbnail(string svg,string output,double minX,double maxY,double width,double height){
+ internal static void Thumbnail(string svg,string output,double minX,double maxY,double width,double height){
   using var bitmap=new Bitmap(240,180);using var graphics=Graphics.FromImage(bitmap);
   graphics.Clear(Color.FromArgb(247,249,252));graphics.SmoothingMode=SmoothingMode.AntiAlias;
   float scale=(float)Math.Min(216/width,156/height),ox=(240-(float)width*scale)/2,oy=(180-(float)height*scale)/2;

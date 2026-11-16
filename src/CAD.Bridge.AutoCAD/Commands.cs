@@ -12,6 +12,12 @@ namespace AICad.Bridge;
 public sealed class Commands {
  static Plugin P=>Plugin.Current??throw new CadException("PLUGIN_OFFLINE","Plugin is not initialized.");
  static void Run(Action action){try{action();}catch(System.Exception e){try{if(Plugin.Current!=null)JsonUtil.Atomic(Path.Combine(Plugin.Current.Config.DataRoot,"last-native-error.json"),new{at=DateTime.UtcNow,code=e is CadException ce?ce.Code:"CAD_ERROR",message=e.Message});}catch{}AcApp.DocumentManager.MdiActiveDocument?.Editor.WriteMessage("\nAI CAD: "+e.Message);}}
+ [CommandMethod("AICADTOOLS",CommandFlags.Modal)]public void ToolManager()=>Run(()=>(P.Tools??=new CadToolPalette(P)).Show());
+ [CommandMethod("AICADLISP",CommandFlags.Modal)]public void LispManager()=>Run(()=>(P.Tools??=new CadToolPalette(P)).Show(0));
+ [CommandMethod("AICADADDINS",CommandFlags.Modal)]public void AddinManager()=>Run(()=>(P.Tools??=new CadToolPalette(P)).Show(1));
+ [CommandMethod("AICADMCP",CommandFlags.Modal)]public void McpConnector()=>Run(()=>(P.Tools??=new CadToolPalette(P)).Show(2));
+ [CommandMethod("AICADTOOLRUN",CommandFlags.Modal)]public void RunTool()=>Run(()=>P.Tools?.ExecutePending());
+ [CommandMethod("AICADTOOLSESSION",CommandFlags.Session)]public void SessionTool()=>Run(()=>P.Tools?.ExecutePending());
  [CommandMethod("AICAD",CommandFlags.Modal|CommandFlags.NoUndoMarker)]public void Palette()=>Run(()=>P.Review.ShowPalette());
  [CommandMethod("AICADREVIEW",CommandFlags.Modal|CommandFlags.NoUndoMarker)]public void Preview()=>Run(()=>{string id=P.NextPlan??throw new CadException("PLAN_REQUIRED","Create a plan in the app first.");P.NextPlan=null;try{P.Review.Prepare(id);}catch(System.Exception e){using(P.Plans.Lock(id)){var record=P.Plans.Read(id);if(record.Status=="READY"||record.Status=="PREVIEW"){record.Status="FAILED";record.Message=(e is CadException ce?ce.Code:"CAD_ERROR")+": "+e.Message;P.Plans.Write(record);}}throw;}});
  [CommandMethod("AICADAPPLY",CommandFlags.Modal|CommandFlags.NoUndoMarker)]public void Apply()=>Run(()=>P.Review.ApplyWithFeedback());
