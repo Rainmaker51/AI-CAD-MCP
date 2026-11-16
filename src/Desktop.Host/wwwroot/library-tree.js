@@ -1,0 +1,13 @@
+function libraryGroupPath(kind,id){const groups=libraryManager[kind].data?.groups||[],parts=[],seen=new Set();while(id&&!seen.has(id)){seen.add(id);const g=groups.find(g=>g.Id===id);if(!g)break;parts.unshift(g.Name);id=g.ParentId||'';}return parts.join(' / ');}
+function libraryGroupContains(kind,parent,id){if(!parent)return true;const groups=libraryManager[kind].data?.groups||[],seen=new Set();while(id&&!seen.has(id)){if(id===parent)return true;seen.add(id);id=groups.find(g=>g.Id===id)?.ParentId||'';}return false;}
+function libraryTreeOptions(kind,selected='',exclude=''){const groups=libraryManager[kind].data?.groups||[];return groups.filter(g=>!exclude||!libraryGroupContains(kind,exclude,g.Id)).map(g=>`<option value="${esc(g.Id)}" ${selected===g.Id?'selected':''}>${esc(libraryGroupPath(kind,g.Id))}</option>`).join('');}
+function libraryParentField(kind,selected='',exclude=''){return `<label>Nhóm cha<select id="manage-group-parent"><option value="">Thư mục gốc</option>${libraryTreeOptions(kind,selected,exclude)}</select></label>`;}
+function libraryTreeNav(){const m=libraryManager.templates,groups=m.data?.groups||[];
+ const branch=(parent='',depth=0)=>depth>15?'':groups.filter(g=>(g.ParentId||'')===parent).map(g=>{
+  const children=groups.some(c=>c.ParentId===g.Id),count=state.templates.filter(t=>libraryGroupContains('templates',g.Id,t.GroupId)).length;
+  const button=`<button class="library-tree-item ${m.group===g.Id?'active':''}" data-library-folder="${esc(g.Id)}"><span>${esc(g.Name)}</span><small>${count}</small></button>`;
+  return children?`<details open class="library-tree-branch"><summary aria-label="Mở hoặc thu gọn ${esc(g.Name)}">${button}</summary><div class="library-tree-children">${branch(g.Id,depth+1)}</div></details>`:button;
+ }).join('');
+ return `<nav class="library-folder-tree" aria-label="Cây thư mục thư viện"><div class="library-tree-head"><h2>Nhóm thư viện</h2><button class="button" data-manage-action="groups" data-kind="templates">Quản lý cây</button></div><button class="library-tree-item ${!m.group?'active':''}" data-library-folder=""><span>Tất cả thư viện</span><small>${state.templates.length}</small></button>${branch()}<button class="library-tree-item ${m.group==='ungrouped'?'active':''}" data-library-folder="ungrouped"><span>Chưa phân nhóm</span><small>${state.templates.filter(t=>!t.GroupId).length}</small></button><p class="hint">Chọn nhóm cha để xem cả thư viện trong các nhóm con.</p></nav>`;
+}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-library-folder]');if(!b)return;e.preventDefault();libraryManager.templates.group=b.dataset.libraryFolder;blockFilter='';render();});

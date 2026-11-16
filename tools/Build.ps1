@@ -37,9 +37,11 @@ try {
  $poppler=(Get-Command pdftoppm -ErrorAction SilentlyContinue).Source
  if(-not $python -and $poppler){$python=Join-Path ([IO.Path]::GetFullPath((Join-Path (Split-Path $poppler -Parent) '../../../../'))) 'python/python.exe'}
  $codex=(Get-Command codex -ErrorAction SilentlyContinue).Source
+ $localPython=Join-Path $repo '.tools/ocr-python/Scripts/python.exe'
+ if(Test-Path -LiteralPath $localPython){$python=$localPython}
  $physicalData=Join-Path $repo "storage/02-app-data/$data"
  $dataRoot=if(Test-Path -LiteralPath $physicalData -PathType Container){$physicalData}else{Join-Path $repo $data}
- $config=[ordered]@{DataRoot=$dataRoot;ContentRoot=$repo;HostExecutable=(Join-Path $buildRoot "$RuntimeRelease/Host/AICad.Host.exe");PythonExecutable=$python;CodexExecutable=$codex}
+ $config=[ordered]@{DataRoot=$dataRoot;ContentRoot=$repo;HostExecutable=(Join-Path $buildRoot "$RuntimeRelease/Host/AICad.Host.exe");PythonExecutable=$(if($python){[string]$python}else{$null});CodexExecutable=$(if($codex){[string]$codex}else{$null})}
  [IO.Directory]::CreateDirectory((Join-Path $repo $data))|Out-Null
  $config|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $buildRoot "$Release/install.json") -Encoding utf8
  if($Test){& $sdk run --project tests/AICad.Tests/AICad.Tests.csproj -c Release;if($LASTEXITCODE -ne 0){throw 'Tests failed'}}

@@ -3,7 +3,7 @@ const sourceLibraryChoices=new Map(),sourceFieldDrafts=new Map();
 let sourceJobs=[],pdfExtracting=false,sourceUploading=false;
 function rememberSource(){const values=sourceRememberFields();if(sourceSelected&&values)sourceFieldDrafts.set(sourceSelected,values);}
 function sourceQueueView(){const labels={QUEUED:'Đang chờ',RUNNING:'Đang dựng',DONE:'Sẵn sàng kiểm tra',FAILED:'Lỗi',CANCELLED:'Đã bỏ'};return `<section class="panel padded"><h2>Hàng đợi PDF / ảnh</h2><p class="hint">Hiệu chuẩn từng bản rồi đưa vào hàng đợi. Bạn có thể tiếp tục thêm tệp và chọn trang PDF trong lúc app dựng.</p><div id="source-queue-list">${sourceQueueRows(labels)}</div><button class="button" data-queue-prepare>Chuẩn bị khung cho các bản sẵn sàng</button></section>`;}
-function sourceQueueRows(labels={QUEUED:'Đang chờ',RUNNING:'Đang dựng',DONE:'Sẵn sàng kiểm tra',FAILED:'Lỗi',CANCELLED:'Đã bỏ'}){return sourceJobs.map(j=>`<div class="actions"><button class="button" data-queue-source="${esc(j.SourceId)}">${esc(j.Name)}</button>${badge(labels[j.Status]||j.Status,j.Status==='DONE'?'green':j.Status==='FAILED'?'amber':'blue')}${j.Status==='QUEUED'?`<button class="button" data-queue-cancel="${esc(j.Id)}">Bỏ khỏi hàng đợi</button>`:''}${j.Status==='FAILED'?`<button class="button" data-queue-retry="${esc(j.Id)}">${j.canValidate?'Kiểm tra lại bản nháp':'Chạy lại'}</button>`:''}${j.Message?`<span class="hint">${esc(j.Message)}</span>`:''}</div>`).join('')||'<p class="hint">Chưa có nguồn trong hàng đợi.</p>';}
+function sourceQueueRows(labels={QUEUED:'Đang chờ',RUNNING:'Đang dựng',DONE:'Sẵn sàng kiểm tra',FAILED:'Lỗi',CANCELLED:'Đã bỏ'}){return sourceJobs.map(j=>`<div class="actions"><button class="button" data-queue-source="${esc(j.SourceId)}">${esc(j.Name)}</button>${badge(labels[j.Status]||j.Status,j.Status==='DONE'?'green':j.Status==='FAILED'?'amber':'blue')}${j.Status==='QUEUED'?`<button class="button" data-queue-cancel="${esc(j.Id)}">Bỏ khỏi hàng đợi</button>`:''}${j.Status==='FAILED'?`<button class="button" data-queue-retry="${esc(j.Id)}">${j.canValidate?'Kiểm tra lại bản nháp':'Chạy lại'}</button>${j.canValidate?`<button class="button" data-queue-rebuild="${esc(j.Id)}">Dựng lại bằng AI</button>`:''}`:''}${j.Message?`<span class="hint">${esc(j.Message)}</span>`:''}</div>`).join('')||'<p class="hint">Chưa có nguồn trong hàng đợi.</p>';}
 async function refreshSourceQueue(){const el=document.getElementById('source-queue-list');if(!el)return;try{sourceJobs=await api('source-queue');const current=document.getElementById('source-queue-list');if(current)current.innerHTML=sourceQueueRows();}catch{}}
 function pdfPageForm(){return `<form id="source-pdf-pages" class="panel padded"><h2>Chọn trang PDF</h2><label for="source-pdf-numbers">Số trang cần dựng</label><input id="source-pdf-numbers" class="input" value="1" placeholder="1, 3, 5" required><button class="button primary" type="submit">Tách các trang đã chọn</button><p class="hint">Mỗi trang được mở thành một nguồn ảnh để hiệu chuẩn và đưa vào hàng đợi.</p></form>`;}
 function sourceProfile(){const libraries=state.templates||[],skills=(state.skills||[]).filter(s=>s.Enabled&&s.Builder==='source');const saved=sourceLibraryChoices.get(sourceSelected),review=sourceModel?.reviewMetadata;let templateId=saved?.templateId||(libraries.some(t=>t.Id==='ISO_QUANGANH')&&skills.some(s=>s.TemplateId==='ISO_QUANGANH')?'ISO_QUANGANH':review?.templateId)||libraries.find(t=>skills.some(s=>s.TemplateId===t.Id))?.Id||libraries[0]?.Id||'';const template=libraries.find(t=>t.Id===templateId),compatible=skills.filter(s=>s.TemplateId===templateId);const skill=compatible.find(s=>s.Id===saved?.skillId)||compatible.find(s=>s.Id===review?.skillId)||compatible[0];return {libraries,template,compatible,skill};}
@@ -54,8 +54,8 @@ document.addEventListener('submit',async e=>{
  catch(error){toast(error.message);}
 });
 document.addEventListener('click',async e=>{
- const pick=e.target.closest('[data-queue-source]'),cancel=e.target.closest('[data-queue-cancel]'),prepare=e.target.closest('[data-queue-prepare]'),retry=e.target.closest('[data-queue-retry]');
- if(!pick&&!cancel&&!prepare&&!retry)return;
+ const pick=e.target.closest('[data-queue-source]'),cancel=e.target.closest('[data-queue-cancel]'),prepare=e.target.closest('[data-queue-prepare]'),retry=e.target.closest('[data-queue-retry]'),rebuild=e.target.closest('[data-queue-rebuild]');
+ if(!pick&&!cancel&&!prepare&&!retry&&!rebuild)return;
  if(prepare){
   if(sourceBusy)return;
   if(!doc()){toast('Chọn DWG nhận kết quả trước.');return;}
@@ -77,6 +77,7 @@ document.addEventListener('click',async e=>{
  }
  if(sourceBusy&&pick)return;
  try{
+  if(rebuild){await api('source-queue/rebuild',{id:rebuild.dataset.queueRebuild});await refreshSourceQueue();return;}
   if(retry){await api('source-queue/retry',{id:retry.dataset.queueRetry});await refreshSourceQueue();return;}
   if(cancel){await api('source-queue/cancel',{id:cancel.dataset.queueCancel});await refreshSourceQueue();return;}
   sources=await api('sources');

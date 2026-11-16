@@ -14,6 +14,32 @@ public static class SourceOpeningEvidence
     private const double JambToleranceMm = 35;
 
     public static void Validate(JArray evidence, List<Operation> operations, TemplateProfile template)
+        => Validate(evidence, operations, template, true);
+
+    // Repair a reference only when the full jamb/width/wall checks identify exactly
+    // one block. Never alter geometry, tolerate ambiguity or weaken validation.
+    public static JArray NormalizeReferences(JArray evidence, List<Operation> operations, TemplateProfile template)
+    {
+        var normalized = (JArray)evidence.DeepClone();
+        foreach (var item in normalized.OfType<JObject>())
+        {
+            bool Matches(int index)
+            {
+                var probe = (JObject)item.DeepClone();
+                probe["operationIndex"] = index;
+                try { Validate(new JArray(probe), operations, template, false); return true; }
+                catch (CadException) { return false; }
+            }
+            int original = item.Value<int?>("operationIndex") ?? -1;
+            if (Matches(original)) continue;
+            var matches = Enumerable.Range(0, operations.Count).Where(Matches).Take(2).ToArray();
+            if (matches.Length == 1) item["operationIndex"] = matches[0];
+        }
+        Validate(normalized, operations, template);
+        return normalized;
+    }
+
+    private static void Validate(JArray evidence, List<Operation> operations, TemplateProfile template, bool requireAll)
     {
         var blocks = template.Blocks.Where(b => b.Usage?.Role is "door" or "window")
             .ToDictionary(b => b.Id, b => b.Usage!);
@@ -72,7 +98,7 @@ public static class SourceOpeningEvidence
                 Math.Abs(Across(op.Points[0])) > faceAllowance + JambToleranceMm)
                 Fail(index, "Block phải đặt ở mép đầu ô chờ và cùng hướng tường.");
         }
-        for (int index = 0; index < operations.Count; index++)
+        for (int index = 0; requireAll && index < operations.Count; index++)
         {
             var op = operations[index];
             if (op.Kind == "insert_block" && blocks.TryGetValue(op.AssetId, out var asset) &&

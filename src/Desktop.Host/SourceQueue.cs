@@ -86,7 +86,7 @@ internal sealed class SourceQueue(InstallConfig config, WorkspaceService workspa
             JToken.DeepEquals(candidate["imageRect"], job.Input["imageRect"]);
     }
 
-    public void Retry(string id, bool requireCandidate = false)
+    public void Retry(string id, bool requireCandidate = false, bool rebuild = false)
     {
         lock (sync)
         {
@@ -99,7 +99,7 @@ internal sealed class SourceQueue(InstallConfig config, WorkspaceService workspa
             bool hasCandidate = HasCandidate(job);
             if (requireCandidate && !hasCandidate)
                 throw new CadException("NO_SAVED_DRAFT", "Chưa có phản hồi AI để kiểm tra lại. Hãy xếp hàng dựng lại.");
-            job.ValidationOnly = hasCandidate;
+            job.ValidationOnly = hasCandidate && !rebuild;
             job.QueuedUtc = DateTime.UtcNow;
             job.Status = "QUEUED";
             job.Message = "";

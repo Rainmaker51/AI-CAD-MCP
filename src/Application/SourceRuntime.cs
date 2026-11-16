@@ -19,6 +19,7 @@ public static class SourceRuntime
             .ToArray();
         var candidates = new List<string> {
             config.PythonExecutable,
+            Path.Combine(config.ContentRoot, ".tools", "ocr-python", "Scripts", "python.exe"),
             Path.Combine(config.ContentRoot, "storage", "03-python-ocr", "python", "python.exe")
         };
         foreach (var renderer in onPath)

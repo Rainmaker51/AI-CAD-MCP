@@ -9,6 +9,10 @@ import numpy as np
 import cv2
 from PIL import Image,ImageDraw
 
+def hough_segments(lines):
+ # OpenCV wheels may return either (N, 1, 4) or (N, 4).
+ return [] if lines is None else np.asarray(lines).reshape(-1,4)[:300]
+
 def analyze(request):
  path=pathlib.Path(request['path']).resolve()
  if not path.is_file() or path.stat().st_size>20*1024*1024:raise ValueError('Source missing or exceeds 20 MB')
@@ -98,8 +102,8 @@ def analyze(request):
   leftover=cv2.bitwise_and(binary,cv2.bitwise_not(cv2.dilate(wall_mask,np.ones((5,5),np.uint8))))
   lines=cv2.HoughLinesP(leftover,1,np.pi/180,25,minLineLength=40,maxLineGap=15)
   angles=[];segments=[]
-  for line in ([] if lines is None else lines[:300]):
-   x0,y0,x1,y1=map(float,line[0]);a=math.degrees(math.atan2(y1-y0,x1-x0));norm=((a+45)%90)-45
+  for line in hough_segments(lines):
+   x0,y0,x1,y1=map(float,line);a=math.degrees(math.atan2(y1-y0,x1-x0));norm=((a+45)%90)-45
    if abs(norm)<12:angles.append(norm)
    distance=math.hypot(x1-x0,y1-y0)*scale/factor
    if distance<200:continue
