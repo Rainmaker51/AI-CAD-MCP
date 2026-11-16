@@ -74,7 +74,10 @@ app.MapPost("/api/library-management/group",async(HttpContext ctx,LibraryManagem
 app.MapGet("/api/library/{kind}/{id}",(string kind,string id,HttpContext ctx,LibraryService svc)=>Out(svc.Content(kind,id,ctx.Request.Query["version"].FirstOrDefault())));
 app.MapGet("/api/block-previews/{id}",(string id,BlockPreviewService svc)=>Out(svc.Read(id)));
 app.MapGet("/api/hatch-library",(HatchLibraryService svc)=>Out(svc.Read()));
-app.MapGet("/api/cad-tools",()=>Out(new CadToolCatalog(config.ContentRoot).Read().Items.Where(t=>!t.DeletedUtc.HasValue).Select(t=>new{t.Id,t.Name,t.Kind,t.Group,t.Notes,t.Enabled,t.Commands,t.FileHash,path=new CadToolCatalog(config.ContentRoot).PathFor(t)})));
+app.MapGet("/api/cad-tools",()=>{
+ var catalog=new CadToolCatalog(config.ContentRoot);
+ return Out(catalog.Read().Items.Where(t=>t.Kind=="dotnet"&&!t.DeletedUtc.HasValue).Select(t=>new{t.Id,t.Name,t.Kind,t.Group,t.Notes,t.Enabled,t.Commands,t.FileHash,path=catalog.PathFor(t)}));
+});
 app.MapGet("/api/cad-tools/mcp-config",()=>Out(CadToolMcpConfig.Create(config)));
 app.MapGet("/api/library-source/{hash}",(string hash)=>Out(CadSourceFile.Describe(config.ContentRoot,hash)));
 app.MapGet("/api/style-library/{kind}",(string kind,StyleLibraryService svc)=>Out(svc.Read(kind)));

@@ -19,7 +19,9 @@ internal sealed class CadToolRuntime:IDisposable {
  internal CadToolRuntime(InstallConfig config){catalog=new CadToolCatalog(config.ContentRoot);cache=Path.Combine(config.DataRoot,"tool-manager","runtime-cache");AppDomain.CurrentDomain.AssemblyResolve+=Resolve;}
  Assembly? Resolve(object sender,ResolveEventArgs args){
   if(args.RequestingAssembly==null||!folders.TryGetValue(args.RequestingAssembly,out string folder))return null;
-  var name=new AssemblyName(args.Name);string file=Path.Combine(folder,name.Name+".dll");if(!File.Exists(file))return null;
+  var name=new AssemblyName(args.Name);string file=Path.Combine(folder,name.Name+".dll");
+  if(!File.Exists(file))return new[]{typeof(Plugin).Assembly,typeof(CadToolCatalog).Assembly}
+   .FirstOrDefault(shared=>string.Equals(shared.FullName,args.Name,StringComparison.OrdinalIgnoreCase));
   string hash=JsonUtil.FileHash(file);if(dependencies.TryGetValue(args.Name,out string previous)&&previous!=hash)throw new CadException("TOOL_RESTART_REQUIRED","Dependency đã đổi: "+name.Name+". Mở lại AutoCAD để nạp đúng phiên bản.");
   var existing=folders.Keys.FirstOrDefault(a=>a.FullName==args.Name&&dependencies.TryGetValue(args.Name,out string value)&&value==hash);if(existing!=null)return existing;
   var assembly=Assembly.LoadFile(file);folders[assembly]=folder;dependencies[args.Name]=hash;return assembly;
@@ -46,10 +48,6 @@ internal sealed class CadToolRuntime:IDisposable {
   catalog.Demand(tool);var item=Load(tool);var c=item.Commands.SingleOrDefault(x=>x.Name==command)??throw new CadException("TOOL_COMMAND","Chọn lệnh thuộc DLL đang nạp.");object? instance=null;
   if(!c.Method.IsStatic){var type=c.Method.DeclaringType!;if(!item.Instances.TryGetValue(type,out instance)){instance=Activator.CreateInstance(type);item.Instances[type]=instance;}}
   try{c.Method.Invoke(instance,null);}catch(TargetInvocationException e){throw new CadException("TOOL_EXECUTION",e.InnerException?.Message??e.Message);}
- }
- internal static string LispExpression(string path,string? command){
-  string quoted=path.Replace('\\','/').Replace("\"","\\\"");if(quoted.Contains("\n")||quoted.Contains("\r"))throw new CadException("TOOL_PATH","Đường dẫn không hợp lệ.");
-  return "(progn (load \""+quoted+"\") "+(string.IsNullOrEmpty(command)?"":"(c:"+CadToolCatalog.CommandName(command!)+") ")+"(princ))\n";
  }
  public void Dispose(){AppDomain.CurrentDomain.AssemblyResolve-=Resolve;foreach(var tool in loaded.Values)foreach(var init in tool.Initializers)try{init.Terminate();}catch{}loaded.Clear();}
 }

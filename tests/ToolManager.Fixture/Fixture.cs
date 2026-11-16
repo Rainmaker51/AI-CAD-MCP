@@ -13,4 +13,8 @@ public sealed class Fixture {
  }
  [CommandMethod("QATOOLUNSUPPORTED")]
  public static int Unsupported()=>42;
+#if FIXTURE_V2
+ [CommandMethod("QATOOLNEW")]
+ public static void NewCommand()=>Hello();
+#endif
 }

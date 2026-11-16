@@ -7,6 +7,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
 using AICad.Contracts;
+using Microsoft.Win32;
 using Newtonsoft.Json.Linq;
 
 Console.OutputEncoding=new UTF8Encoding(false);
@@ -46,6 +47,7 @@ try {
   for(int i=0;i<60&&info==null;i++){await Task.Delay(250);info=await Running();}
   if(info==null)throw new Exception("Host chưa sẵn sàng sau 15 giây. Kiểm tra .NET và cấu hình cài đặt.");
  }
+ var nativeRelease=new[]{"p0-p6-axis-addin","p0-p6-ribbon-center","p0-p6-rainmaker-toggle","p0-p6-rainmaker-tools","p0-p6-rainmaker","p0-p6-review-dark","p0-p6-addins","p0-p6"}.Select(name=>new{Path=Path.Combine(buildRoot,name),Marker=Path.Combine(buildRoot,name,"AutoCAD","plugin-version.txt")}).Where(x=>File.Exists(x.Marker)).Select(x=>new{Root=x.Path,Version=Version.TryParse(File.ReadAllText(x.Marker).Trim(),out var version)?version:new Version(0,0)}).Where(x=>x.Version>=new Version(0,7,6)).OrderByDescending(x=>x.Version).FirstOrDefault();
  bool appOpened=false;int? cadPid=null;bool reused=false;
  if(!flags.Contains("--no-browser")){
   string page=flags.Contains("--account")?"account":"work";
@@ -56,22 +58,28 @@ try {
   string sessions=Path.Combine(config.DataRoot,"sessions");
   if(Directory.Exists(sessions))foreach(string file in Directory.EnumerateFiles(sessions,"*.json"))try{
    var session=Json.Read<SessionInfo>(File.ReadAllText(file));
-   if((DateTime.UtcNow-session.HeartbeatUtc).TotalSeconds>20||(!Version.TryParse(session.PluginVersion,out var pluginVersion)||pluginVersion<new Version(0,7,2)))continue;
+   if((DateTime.UtcNow-session.HeartbeatUtc).TotalSeconds>20||(!Version.TryParse(session.PluginVersion,out var pluginVersion)||nativeRelease==null||pluginVersion<new Version(nativeRelease.Version.Major,nativeRelease.Version.Minor,nativeRelease.Version.Build)))continue;
    using var cad=Process.GetProcessById(session.ProcessId);
    if(cad.ProcessName.Equals("acad",StringComparison.OrdinalIgnoreCase)&&cad.StartTime.ToUniversalTime().Ticks==session.ProcessStartTicks&&cad.MainWindowHandle!=IntPtr.Zero){cadPid=cad.Id;reused=true;break;}
   }catch(Exception e)when(e is IOException||e is ArgumentException||e is InvalidOperationException||e is CadException){}
   if(!reused){
    string cadExe=@"C:\Program Files\Autodesk\AutoCAD 2021\acad.exe";
-   var nativeRelease=new[]{"p0-p6-tools-dark","p0-p6"}.Select(name=>new{Path=Path.Combine(buildRoot,name),Marker=Path.Combine(buildRoot,name,"AutoCAD","plugin-version.txt")}).Where(x=>File.Exists(x.Marker)).Select(x=>new{Root=x.Path,Version=Version.TryParse(File.ReadAllText(x.Marker).Trim(),out var version)?version:new Version(0,0)}).Where(x=>x.Version>=new Version(0,7,2)).OrderByDescending(x=>x.Version).FirstOrDefault()??throw new Exception("Build lại plugin AutoCAD 0.7.2 để mở CAD Tool Manager dark mode.");
+   if(nativeRelease==null)throw new Exception("Cần build plugin AutoCAD trước khi mở.");
    string plugin=Path.Combine(nativeRelease.Root,"AutoCAD","CAD.Bridge.AutoCAD.dll");
    string pluginConfig=Path.Combine(nativeRelease.Root,"install.json");
-   if(!File.Exists(cadExe)||!File.Exists(plugin))throw new Exception("Không tìm thấy AutoCAD 2021 hoặc plugin 0.7.2.");
+   if(!File.Exists(cadExe)||!File.Exists(plugin))throw new Exception("Không tìm thấy AutoCAD 2021 hoặc plugin AI CAD.");
    var native=Json.Read<InstallConfig>(File.ReadAllText(pluginConfig));
    if(native.DataRoot!=config.DataRoot||native.HostExecutable!=config.HostExecutable)throw new Exception("Plugin và app chưa dùng chung cấu hình kết nối.");
    string launch=Path.Combine(config.DataRoot,"drawings","launch-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(launch);
    string drawing=Path.Combine(launch,"AI-CAD-START.dwg"),script=Path.Combine(launch,"load-plugin.scr");
    File.Copy(Path.Combine(root,"content","launch","blank-mm.dwg"),drawing);
-   File.WriteAllText(script,"_NETLOAD\n\""+plugin.Replace('\\','/')+"\"\nAICADTOOLS\n",Encoding.ASCII);
+   using var startup=Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Autodesk\AutoCAD\R24.0\ACAD-4101:409\Applications\AICadToolManager");
+   bool autoLoads=startup?.GetValue("LOADER") is string registered &&
+     string.Equals(registered,plugin,StringComparison.OrdinalIgnoreCase) &&
+     startup.GetValue("MANAGED") is int managed && managed==1 &&
+     startup.GetValue("LOADCTRLS") is int flagsValue && (flagsValue&2)!=0;
+   string load=autoLoads?"":"_NETLOAD\n\""+plugin.Replace('\\','/')+"\"\n";
+   File.WriteAllText(script,load+"AICADTOOLS\n",Encoding.ASCII);
    var cad=new ProcessStartInfo(cadExe){UseShellExecute=false,WindowStyle=ProcessWindowStyle.Normal};
    cad.ArgumentList.Add(drawing);cad.ArgumentList.Add("/nologo");cad.ArgumentList.Add("/b");cad.ArgumentList.Add(script);
    using var child=Process.Start(cad)??throw new Exception("Không mở được AutoCAD.");cadPid=child.Id;
