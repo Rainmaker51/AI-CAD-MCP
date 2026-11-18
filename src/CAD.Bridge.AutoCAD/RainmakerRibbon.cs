@@ -70,7 +70,7 @@ internal sealed class RainmakerRibbon
             }
             var pins=index.Items.Where(t=>t.Kind=="dotnet"&&t.Enabled&&!t.DeletedUtc.HasValue)
                 .SelectMany(tool=>tool.RibbonPins.Where(pin=>tool.Commands.Contains(pin.Command,StringComparer.OrdinalIgnoreCase)&&Target(tool,pin)==definition.Id)
-                .Select(pin=>new{Tool=tool,Pin=pin,Group=First(pin.Group,tool.Group,"Công cụ")}))
+                .Select(pin=>new{Tool=tool,Pin=pin,Group=CadToolCatalog.RibbonGroup(tool,pin)}))
                 .OrderBy(p=>p.Group,StringComparer.CurrentCultureIgnoreCase).ThenBy(p=>p.Pin.Order).ThenBy(p=>p.Pin.Label,StringComparer.CurrentCultureIgnoreCase);
             foreach(var pin in pins)Add(pin.Group,Button(First(pin.Pin.Label,pin.Pin.Command),First(pin.Pin.Description,pin.Tool.Notes,pin.Pin.Command),pin.Pin.Icon,
                 ()=>(plugin.Tools??=new CadToolPalette(plugin)).QueueRibbon(pin.Tool.Id,pin.Pin.Command)));

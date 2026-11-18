@@ -21,8 +21,8 @@ public sealed class LibraryPlugin:IExtensionApplication,ICadManagedAddin
     public IReadOnlyList<CadRibbonPin> ManagedCommands=>new[]{
         Pin("QALIBBLOCK","Block","Loại thư viện",0),Pin("QALIBLAYER","Layer","Loại thư viện",1),Pin("QALIBHATCH","Hatch","Loại thư viện",2),Pin("QALIBTEXT","Text","Loại thư viện",3),Pin("QALIBDIM","Dim","Loại thư viện",4),
         Pin("QALIBADOPT","Nhận vào nhóm","Mẫu thư viện",0),Pin("QALIBASSIGN","Chuyển nhóm","Mẫu thư viện",1),Pin("QALIBPACK","Xếp gọn nhóm","Mẫu thư viện",2),Pin("QALIBMOVEGROUP","Di chuyển cả nhóm","Mẫu thư viện",3),
-        Pin("QALIBRESIZE","Chỉnh khung","Khung và nhóm",0),Pin("QALIBNEWGROUP","Tạo nhóm","Khung và nhóm",1),Pin("QALIBRENAME","Đổi tên nhóm","Khung và nhóm",2),Pin("QALIBDELETEGROUP","Xóa nhóm rỗng","Khung và nhóm",3),Pin("QALIBKEEP","Giữ bố trí","Khung và nhóm",4),
-        Pin("QALIBRARY","Bảng thư viện","Quản lý thư viện",0),Pin("QALIBZOOM","Đến nhóm","Quản lý thư viện",1),Pin("QALIBREFRESH","Làm mới","Quản lý thư viện",2),Pin("QALIBINIT","Khởi tạo DWG thư viện","Quản lý thư viện",3)
+        Pin("QALIBRESIZE","Chỉnh khung","Khung và nhóm",0),Pin("QALIBNEWGROUP","Tạo nhóm","Khung và nhóm",1),Pin("QALIBRENAME","Đổi tên nhóm","Khung và nhóm",2),Pin("QALIBDELETEGROUP","Xóa nhóm rỗng","Khung và nhóm",3),
+        Pin("QALIBRARY","Thư viện QA","Quản lý thư viện",0),Pin("QALIBZOOM","Đến nhóm","Quản lý thư viện",1),Pin("QALIBREFRESH","Làm mới","Quản lý thư viện",2),Pin("QALIBINIT","Khởi tạo DWG thư viện","Quản lý thư viện",3)
     };
     static CadRibbonPin Pin(string command,string label,string group,int order)=>new(){Command=command,Label=label,Group=group,Order=order,Icon="Công cụ",Description=label+" · Thư viện CAD"};
     public void Initialize()=>Start(null);
@@ -43,7 +43,7 @@ public sealed class LibraryPlugin:IExtensionApplication,ICadManagedAddin
     }
     internal void Show()
     {
-        if(palette==null){view=new LibraryView();palette=new PaletteSet("Thư viện QA · Block / Layer / Hatch / Text / Dim",new Guid("2c450968-2b64-4f9e-9cce-799a57879ab3")){Style=PaletteSetStyles.ShowAutoHideButton|PaletteSetStyles.ShowCloseButton|PaletteSetStyles.ShowPropertiesMenu,MinimumSize=new Size(350,400),Size=new Size(440,760),DockEnabled=DockSides.Left|DockSides.Right};palette.AddVisual("Quản lý",view);}
+        if(palette==null){view=new LibraryView();palette=new PaletteSet("Thư viện QA",new Guid("2c450968-2b64-4f9e-9cce-799a57879ab3")){Style=PaletteSetStyles.ShowAutoHideButton|PaletteSetStyles.ShowCloseButton|PaletteSetStyles.ShowPropertiesMenu,MinimumSize=new Size(350,400),Size=new Size(440,760),DockEnabled=DockSides.Left|DockSides.Right};palette.AddVisual("Thư viện QA",view);}
         palette.Visible=true;Refresh();
     }
     internal void Refresh()

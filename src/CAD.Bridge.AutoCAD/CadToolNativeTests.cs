@@ -14,7 +14,16 @@ public sealed class CadToolNativeTests {
    string app=Path.Combine(root,"r-"+Guid.NewGuid().ToString("N").Substring(0,8));Directory.CreateDirectory(app);var catalog=new CadToolCatalog(app);var config=new InstallConfig{ContentRoot=app,DataRoot=Path.Combine(root,"d"),HostExecutable=Plugin.Current!.Config.HostExecutable};string dispatched="";
    using var runtime=new CadToolRuntime(config,(id,command)=>dispatched=id+":"+command);
    var tool=catalog.Import(Path.Combine(root,"library","Rainmaker.Library.dll"),0);var loaded=runtime.Load(tool);
-   if(loaded.Commands.Count!=18||loaded.Commands.Any(c=>c.Name.EndsWith("TEST")||c.Name=="QALIBUIVERIFY"))throw new System.Exception("Managed command manifest not respected");
+   string dataTest=Path.Combine(root,"library-data");Directory.CreateDirectory(dataTest);File.WriteAllText(Path.Combine(dataTest,".library-manager-test"),"Isolated library data test");
+   string? previousRoot=Environment.GetEnvironmentVariable("QALIB_TEST_ROOT");
+   try{
+    Environment.SetEnvironmentVariable("QALIB_TEST_ROOT",dataTest);
+    var tests=loaded.Assembly.GetType("Rainmaker.Library.NativeTests")!;
+    tests.GetMethod("Run")!.Invoke(Activator.CreateInstance(tests),null);
+    var result=JsonUtil.Read<Newtonsoft.Json.Linq.JObject>(File.ReadAllText(Path.Combine(dataTest,"result.json")));
+    if(result.Value<bool>("passed")!=true)throw new System.Exception("Library data round-trip through Manager failed: "+result["error"]);
+   }finally{Environment.SetEnvironmentVariable("QALIB_TEST_ROOT",previousRoot);}
+   if(loaded.Commands.Count!=17||loaded.Commands.Any(c=>c.Name.EndsWith("TEST")||c.Name=="QALIBUIVERIFY"))throw new System.Exception("Managed command manifest not respected");
    catalog.Update(tool.Id,1,"Thư viện","Thư viện","",true,loaded.Commands.Select(c=>c.Name));string tab=catalog.SaveTab(2,"","Thư viện",10);
    catalog.Update(tool.Id,3,"Thư viện","Thư viện","",true,loaded.Commands.Select(c=>c.Name),tabId:tab);catalog.PinCommands(tool.Id,4,loaded.Commands.Select(c=>c.SuggestedPin!));
    loaded.Assembly.GetType("Rainmaker.Library.LibraryPlugin")!.GetMethod("Send",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic)!.Invoke(null,new object[]{"QALIBPACK"});if(dispatched!=tool.Id+":QALIBPACK")throw new System.Exception("Palette bypassed Manager dispatcher");
@@ -30,7 +39,7 @@ public sealed class CadToolNativeTests {
     var view=(System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(tabs);view.Measure(new System.Windows.Size(620,860));view.Arrange(new System.Windows.Rect(0,0,620,860));view.UpdateLayout();
     var bitmap=new System.Windows.Media.Imaging.RenderTargetBitmap(620,860,96,96,System.Windows.Media.PixelFormats.Pbgra32);bitmap.Render(view);var encoder=new System.Windows.Media.Imaging.PngBitmapEncoder();encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));using var output=File.Create(Path.Combine(root,"ribbon-manager-palette.png"));encoder.Save(output);
    }
-   JsonUtil.Atomic(Path.Combine(root,"ribbon-manager-results.json"),new{passed=true,managedCommands=18,customTabs=true,paletteDispatch=true,rename=true,deleteMovesCommands=true,externalTabsPreserved=true,disableTerminates=true});
+   JsonUtil.Atomic(Path.Combine(root,"ribbon-manager-results.json"),new{passed=true,managedCommands=17,customTabs=true,paletteDispatch=true,rename=true,deleteMovesCommands=true,externalTabsPreserved=true,disableTerminates=true});
   }catch(System.Exception error){JsonUtil.Atomic(Path.Combine(root,"ribbon-manager-results.json"),new{passed=false,error=error.ToString()});}
  }
  [CommandMethod("AICADTOOLSTEST")]

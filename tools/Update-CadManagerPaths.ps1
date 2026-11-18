@@ -7,7 +7,7 @@ if (-not (Test-Path -LiteralPath $buildRoot -PathType Container)) {
     $buildRoot = Join-Path $appRoot 'artifacts'
 }
 $hostConfig = Join-Path $buildRoot 'p0-p6/install.json'
-$releases = foreach ($name in @('p0-p6-ribbon-manager', 'p0-p6-library-manager', 'p0-p6-axis-addin', 'p0-p6-ribbon-center', 'p0-p6-rainmaker-toggle', 'p0-p6-rainmaker-tools', 'p0-p6-rainmaker', 'p0-p6-review-dark', 'p0-p6-addins', 'p0-p6')) {
+$releases = foreach ($name in @('p0-p6-block-replacement', 'p0-p6-ribbon-editor', 'p0-p6-manager-alignment', 'p0-p6-layout-preserve', 'p0-p6-json-fix', 'p0-p6-ribbon-manager', 'p0-p6-library-manager', 'p0-p6-axis-addin', 'p0-p6-ribbon-center', 'p0-p6-rainmaker-toggle', 'p0-p6-rainmaker-tools', 'p0-p6-rainmaker', 'p0-p6-review-dark', 'p0-p6-addins', 'p0-p6')) {
     $release = Join-Path $buildRoot $name
     $dll = Join-Path $release 'AutoCAD/CAD.Bridge.AutoCAD.dll'
     $marker = Join-Path $release 'AutoCAD/plugin-version.txt'

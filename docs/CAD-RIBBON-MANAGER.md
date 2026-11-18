@@ -22,10 +22,16 @@ Xóa tab chuyển add-in dùng tab đó về tab mặc định; các nút gán t
 1. Giải nén `artifacts/Rainmaker.Library.AutoCAD2021.zip` vào một thư mục riêng. Giữ các DLL đi kèm cùng thư mục.
 2. Gõ `AICADTOOLS`, vào **.NET Add-in → Thêm file**, chọn `Rainmaker.Library.dll`.
 3. Chọn **Nạp**, chọn tab muốn dùng và **Lưu hồ sơ**.
-4. Chọn **Ghim toàn bộ lệnh vào tab add-in** để hiện 18 nút quản lý thư viện.
+4. Với Library 1.2.0, chọn lệnh `QALIBRARY`, ghim một nút **Thư viện QA** rồi lưu. Nút mở bảng riêng gồm chọn Block/Layer/Hatch/Text/Dim, danh sách nhóm và toàn bộ thao tác quản lý. Các lệnh còn lại được gọi từ bảng.
 
 Library không tự tạo tab riêng nữa. Các nút trong bảng Library cũng chạy qua Manager. Tắt/xóa add-in trong Manager dừng bảng Library và grip quản lý; dữ liệu trong DWG vẫn được giữ. Khi cập nhật DLL hoặc dependency, mở lại AutoCAD nếu Manager yêu cầu.
 
 ## Kiểm tra
 
 `tests/ToolManager.Tests` kiểm tra dữ liệu tab, phân tab, đổi tên, xóa và tương thích danh mục cũ. `AICADRIBBONMANAGERTEST` dùng thư mục cách ly có marker `.aicad-tools-test` để kiểm tra manifest Library, bộ điều phối lệnh, tab Ribbon và vòng đời add-in trong AutoCAD.
+
+## Nhóm công cụ và nhóm Ribbon
+
+**Nhóm công cụ** trong hồ sơ phân loại add-in ở danh sách Manager. Trong mục **Ribbon · Tab và nút lệnh**, bật **Dùng nhóm công cụ trên Ribbon** để nút đi theo nhóm đó, kể cả khi đổi tên nhóm sau này. Bỏ chọn nếu muốn nhóm riêng cho một lệnh, nhập **Nhóm trên Ribbon** rồi **Lưu nút Ribbon**. **Lưu hồ sơ** lưu tên/nhóm công cụ; **Lưu nút Ribbon** lưu cấu hình riêng của nút đang chọn.
+
+Mục **Ribbon · Tab và nút lệnh** có thể mở ngay khi chọn add-in. Danh sách lệnh lấy từ danh mục đã lưu; không cần nạp DLL lại mỗi lần mở AutoCAD để chỉnh ghim. Chọn lệnh tại **Lệnh cần cấu hình** trong mục này. Khi chạy một lệnh chưa nạp, Manager đọc lại DLL, kiểm tra lệnh và chọn ngữ cảnh AutoCAD phù hợp trước khi thực thi. DLL mới chưa có danh sách lệnh vẫn cần **Nạp / nạp lại** một lần.

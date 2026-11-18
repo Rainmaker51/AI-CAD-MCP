@@ -22,9 +22,11 @@ internal sealed class CadToolRuntime:IDisposable {
  internal CadToolRuntime(InstallConfig config,Action<string,string>? dispatch=null){catalog=new CadToolCatalog(config.ContentRoot);cache=Path.Combine(config.DataRoot,"tool-manager","runtime-cache");this.dispatch=dispatch;AppDomain.CurrentDomain.AssemblyResolve+=Resolve;}
  Assembly? Resolve(object sender,ResolveEventArgs args){
   if(args.RequestingAssembly==null||!folders.TryGetValue(args.RequestingAssembly,out string folder))return null;
+  var shared=new[]{typeof(Plugin).Assembly,typeof(CadToolCatalog).Assembly,typeof(Newtonsoft.Json.Linq.JObject).Assembly}
+   .FirstOrDefault(assembly=>string.Equals(assembly.FullName,args.Name,StringComparison.OrdinalIgnoreCase));
+  if(shared!=null)return shared;
   var name=new AssemblyName(args.Name);string file=Path.Combine(folder,name.Name+".dll");
-  if(!File.Exists(file))return new[]{typeof(Plugin).Assembly,typeof(CadToolCatalog).Assembly}
-   .FirstOrDefault(shared=>string.Equals(shared.FullName,args.Name,StringComparison.OrdinalIgnoreCase));
+  if(!File.Exists(file))return null;
   string hash=JsonUtil.FileHash(file);if(dependencies.TryGetValue(args.Name,out string previous)&&previous!=hash)throw new CadException("TOOL_RESTART_REQUIRED","Dependency đã đổi: "+name.Name+". Mở lại AutoCAD để nạp đúng phiên bản.");
   var existing=folders.Keys.FirstOrDefault(a=>a.FullName==args.Name&&dependencies.TryGetValue(args.Name,out string value)&&value==hash);if(existing!=null)return existing;
   var assembly=Assembly.LoadFile(file);folders[assembly]=folder;dependencies[args.Name]=hash;return assembly;

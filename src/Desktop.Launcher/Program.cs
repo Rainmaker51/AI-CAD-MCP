@@ -47,7 +47,7 @@ try {
   var startupDeadline=DateTime.UtcNow.AddSeconds(45);while(info==null&&DateTime.UtcNow<startupDeadline){await Task.Delay(250);info=await Running();}
   if(info==null)throw new Exception("Host chưa sẵn sàng sau 45 giây. Kiểm tra .NET và cấu hình cài đặt.");
  }
- var nativeRelease=new[]{"p0-p6-ribbon-manager","p0-p6-library-manager","p0-p6-axis-addin","p0-p6-ribbon-center","p0-p6-rainmaker-toggle","p0-p6-rainmaker-tools","p0-p6-rainmaker","p0-p6-review-dark","p0-p6-addins","p0-p6"}.Select(name=>new{Path=Path.Combine(buildRoot,name),Marker=Path.Combine(buildRoot,name,"AutoCAD","plugin-version.txt")}).Where(x=>File.Exists(x.Marker)).Select(x=>new{Root=x.Path,Version=Version.TryParse(File.ReadAllText(x.Marker).Trim(),out var version)?version:new Version(0,0)}).Where(x=>x.Version>=new Version(0,7,6)).OrderByDescending(x=>x.Version).FirstOrDefault();
+ var nativeRelease=new[]{"p0-p6-block-replacement","p0-p6-ribbon-editor","p0-p6-manager-alignment","p0-p6-layout-preserve","p0-p6-json-fix","p0-p6-ribbon-manager","p0-p6-library-manager","p0-p6-axis-addin","p0-p6-ribbon-center","p0-p6-rainmaker-toggle","p0-p6-rainmaker-tools","p0-p6-rainmaker","p0-p6-review-dark","p0-p6-addins","p0-p6"}.Select(name=>new{Path=Path.Combine(buildRoot,name),Marker=Path.Combine(buildRoot,name,"AutoCAD","plugin-version.txt")}).Where(x=>File.Exists(x.Marker)).Select(x=>new{Root=x.Path,Version=Version.TryParse(File.ReadAllText(x.Marker).Trim(),out var version)?version:new Version(0,0)}).Where(x=>x.Version>=new Version(0,7,6)).OrderByDescending(x=>x.Version).FirstOrDefault();
  bool appOpened=false;int? cadPid=null;bool reused=false;
  if(!flags.Contains("--no-browser")){
   string page=flags.Contains("--account")?"account":"work";

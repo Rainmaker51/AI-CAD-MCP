@@ -31,10 +31,23 @@ internal sealed class LibraryView:UserControl
         var root=new StackPanel{Margin=new Thickness(14)};var border=new Border{Child=new ScrollViewer{Content=root,VerticalScrollBarVisibility=ScrollBarVisibility.Auto}};border.SetResourceReference(Border.BackgroundProperty,"ToolBackground");Content=border;
         root.Children.Add(new TextBlock{Text="THƯ VIỆN QA",FontSize=20,FontWeight=FontWeights.SemiBold});root.Children.Add(source);root.Children.Add(kind);root.Children.Add(summary);root.Children.Add(error);
         root.Children.Add(new TextBlock{Text="Nhóm và nhóm con",Margin=new Thickness(0,12,0,6),FontWeight=FontWeights.SemiBold});root.Children.Add(groups);
-        foreach(var action in new[]{("Nhận mẫu vào nhóm","QALIBADOPT"),("Chuyển mẫu sang nhóm khác","QALIBASSIGN"),("Xếp gọn nhóm","QALIBPACK"),("Di chuyển cả nhóm","QALIBMOVEGROUP"),("Kéo/chỉnh phạm vi khung","QALIBRESIZE"),("Tạo nhóm con","QALIBNEWGROUP"),("Đổi tên nhóm","QALIBRENAME"),("Xóa nhóm rỗng","QALIBDELETEGROUP"),("Bật/tắt giữ bố trí","QALIBKEEP")})
+        var actions=new Grid{Margin=new Thickness(0,8,0,4)};
+        actions.ColumnDefinitions.Add(new ColumnDefinition());
+        actions.ColumnDefinitions.Add(new ColumnDefinition());
+        int actionIndex=0;
+        foreach(var action in new[]{("Nhận mẫu vào nhóm","QALIBADOPT"),("Chuyển mẫu sang nhóm khác","QALIBASSIGN"),("Xếp gọn nhóm","QALIBPACK"),("Di chuyển cả nhóm","QALIBMOVEGROUP"),("Kéo/chỉnh phạm vi khung","QALIBRESIZE"),("Đến nhóm đang chọn","QALIBZOOM"),("Tạo nhóm con","QALIBNEWGROUP"),("Đổi tên nhóm","QALIBRENAME"),("Xóa nhóm rỗng","QALIBDELETEGROUP")})
         {
-            var button=Theme.Button(action.Item1,action.Item2);button.Click+=(_,_)=>LibraryPlugin.Send((string)button.Tag);root.Children.Add(button);
+            int column=actionIndex%2,row=actionIndex/2;
+            if(column==0)actions.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+            var button=Theme.Button(action.Item1,action.Item2);
+            button.Content=new TextBlock{Text=action.Item1,TextWrapping=TextWrapping.Wrap};
+            button.Margin=new Thickness(column==0?0:4,4,column==0?4:0,4);
+            System.Windows.Automation.AutomationProperties.SetName(button,action.Item1);
+            button.Click+=(_,_)=>LibraryPlugin.Send((string)button.Tag);
+            Grid.SetColumn(button,column);Grid.SetRow(button,row);actions.Children.Add(button);
+            actionIndex++;
         }
+        root.Children.Add(actions);
         root.Children.Add(new TextBlock{Text="Mẫu trong nhóm",Margin=new Thickness(0,12,0,6),FontWeight=FontWeights.SemiBold});root.Children.Add(items);
         foreach(var action in new[]{("Làm mới từ DWG","QALIBREFRESH"),("Khởi tạo quản lý trên DWG này","QALIBINIT")}){var button=Theme.Button(action.Item1,action.Item2);button.Click+=(_,_)=>LibraryPlugin.Send((string)button.Tag);root.Children.Add(button);}
         root.Children.Add(new TextBlock{Text="Ctrl+S lưu DWG trước khi đồng bộ app. Các mẫu vẫn sửa trực tiếp trong Model Space. Kéo khung chỉ đổi phạm vi; dùng Di chuyển cả nhóm để chuyển cả nội dung.",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,12,0,8)});
@@ -48,7 +61,7 @@ internal sealed class LibraryView:UserControl
         updating=true;resources=all;source.Text=Path.GetFileName(file);error.Text=managed?"":"Chọn đúng DWG thư viện rồi nhấn Khởi tạo để dùng các lệnh quản lý.";kind.SelectedItem=((KindItem[])kind.ItemsSource).First(k=>k.Key==Commands.Kind);summary.Text=LibraryFrames.KindName(Commands.Kind)+": "+all.Count(i=>i.Kind==Commands.Kind)+" tài nguyên · "+nodes.Count(n=>n.Kind==Commands.Kind&&n.Path!="")+" nhóm";groups.Items.Clear();
         TreeViewItem Row(LibraryFrameNode node)
         {
-            var row=new TreeViewItem{Header=(node.Path==""?LibraryFrames.KindName(node.Kind):node.Path.Split('/').Last().Trim())+(node.Manual?" · Giữ bố trí":""),Tag=node,IsExpanded=true};
+            var row=new TreeViewItem{Header=(node.Path==""?LibraryFrames.KindName(node.Kind):node.Path.Split('/').Last().Trim()),Tag=node,IsExpanded=true};
             row.SetResourceReference(ForegroundProperty,"ToolText");
             row.MouseDoubleClick+=(_,e)=>{e.Handled=true;Commands.Kind=node.Kind;Commands.SelectedGroup=node.Id;LibraryPlugin.Send("QALIBZOOM");};
             foreach(var child in nodes.Where(n=>n.Kind==node.Kind&&n.Path!=""&&n.Parent==node.Path).OrderBy(n=>n.Path))row.Items.Add(Row(child));

@@ -31,6 +31,8 @@ public sealed class CadToolCatalog {
  public const string DefaultTabId="rainmaker";
  public const string AxisToolId="rainmaker-axis";
  public const string AxisCommand="RAINMAKERAXIS";
+ public static string RibbonGroup(CadToolEntry tool,CadRibbonPin pin)=>
+  !string.IsNullOrWhiteSpace(pin.Group)?pin.Group.Trim():!string.IsNullOrWhiteSpace(tool.Group)?tool.Group.Trim():"Công cụ";
  readonly string root;public string Root=>root;string Index=>Path.Combine(root,"catalog.json");
  public CadToolCatalog(string appRoot){root=Path.Combine(WarehousePaths.Resolve(appRoot),"Tools");}
  public CadToolIndex Read(){var index=File.Exists(Index)?Json.Read<CadToolIndex>(File.ReadAllText(Index)):new();index.Tabs=(index.Tabs??new()).GroupBy(t=>t.Id,StringComparer.OrdinalIgnoreCase).Select(g=>g.First()).ToList();if(!index.Tabs.Any(t=>t.Id==DefaultTabId))index.Tabs.Insert(0,new(){Id=DefaultTabId,Name="Rainmaker"});return index;}

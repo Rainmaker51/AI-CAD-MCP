@@ -59,7 +59,7 @@ public sealed class Commands
     {
         if(doc.Database.Insunits!=UnitsValue.Millimeters)throw new CadException("UNITS","Thư viện cần đặt đơn vị mm trước khi khởi tạo.");
         var items=LibraryFrames.ManagedItems(doc.Database,tx);var nodes=LibraryFrames.Nodes(doc.Database,tx);foreach(string kind in LibrarySyncRules.Kinds)LibraryFrames.Ensure(nodes,kind,"");LibraryFrames.Save(doc.Database,tx,nodes);
-        LibrarySyncNative.ArrangeDrawing(doc.Database,tx,items);LibraryFrames.Separate(doc.Database,tx,items);doc.Editor.WriteMessage("\nĐã tạo 5 khu quản lý thư viện. Nội dung chưa nhận vào nhóm được giữ nguyên.");
+        LibrarySyncNative.ArrangeDrawing(doc.Database,tx,items);doc.Editor.WriteMessage("\nĐã tạo 5 khu quản lý thư viện. Nội dung chưa nhận vào nhóm được giữ nguyên.");
     },true);
 
     static LibraryFrameNode ChooseGroup(Database db,Transaction tx,string title)
@@ -97,6 +97,7 @@ public sealed class Commands
             if(requireManaged&&!LibrarySyncNative.Managed(doc.Database,tx,item))throw new CadException("LIBRARY_UNMANAGED","Mẫu chưa được quản lý; dùng Nhận vào nhóm trước.");
             if(!chosen.ContainsKey(item.Id))chosen.Add(item.Id,Tuple.Create(item,entity));
         }
+        var additions=new List<LibrarySyncItem>();
         foreach(var chosenItem in chosen.Values)
         {
             var item=chosenItem.Item1;var entity=chosenItem.Item2;bool hasCell=LibraryFrames.Model(doc.Database,tx).OfType<Polyline>().Any(p=>LibrarySyncNative.SampleMetadata(p,tx)?.Id==item.Id);
@@ -105,10 +106,14 @@ public sealed class Commands
                 var bt=(BlockTable)tx.GetObject(doc.Database.BlockTableId,OpenMode.ForRead);var ms=(BlockTableRecord)tx.GetObject(bt[BlockTableRecord.ModelSpace],OpenMode.ForWrite);var point=entity.GeometricExtents.MinPoint;
                 var preview=new Line(point,point+new Vector3d(5200,0,0)){LayerId=entity.LayerId,LinetypeScale=100};ms.AppendEntity(preview);tx.AddNewlyCreatedDBObject(preview,true);entity=preview;
             }
+            bool relocate=!hasCell||item.Group!=target.Path;
             LibrarySyncNative.AssignGroup(doc.Database,tx,item,target.Path,hasCell?null:entity);if(!hasCell)LibraryFrames.AddCell(doc.Database,tx,item,entity);
+            if(relocate)additions.Add(item);
         }
-        var managed=LibraryFrames.ManagedItems(doc.Database,tx);LibraryFrames.Clear(doc.Database,tx);LibraryFrames.Build(doc.Database,tx,managed);
-        if(!LibraryFrames.Nodes(doc.Database,tx).Any(n=>n.Kind==target.Kind&&LibraryFrames.Under(n.Path,target.Path)&&n.Manual))LibraryFrames.PackGroup(doc.Database,tx,target,managed);LibraryFrames.Separate(doc.Database,tx,managed);doc.Editor.WriteMessage("\nĐã nhận/chuyển "+chosen.Count+" tài nguyên vào "+target.Label+". Ctrl+S để lưu trước khi đồng bộ app.");
+        var managed=LibraryFrames.ManagedItems(doc.Database,tx);
+        LibraryFrames.AppendToGroup(doc.Database,tx,target,managed,additions);
+        LibraryFrames.Clear(doc.Database,tx);LibraryFrames.Build(doc.Database,tx,managed);
+        doc.Editor.WriteMessage("\nĐã nhận/chuyển "+chosen.Count+" tài nguyên vào "+target.Label+". Ctrl+S để lưu trước khi đồng bộ app.");
     }
     [CommandMethod("QALIBADOPT",CommandFlags.Modal|CommandFlags.UsePickSet)]public void Add()=>Guard((doc,tx)=>Adopt(doc,tx,false));
     [CommandMethod("QALIBASSIGN",CommandFlags.Modal|CommandFlags.UsePickSet)]public void Assign()=>Guard((doc,tx)=>Adopt(doc,tx,true));
@@ -146,5 +151,4 @@ public sealed class Commands
         if(group.Path==""||nodes.Any(n=>n.Kind==group.Kind&&n.Parent==group.Path)||items.Any(i=>i.Kind==group.Kind&&LibraryFrames.Under(i.Group,group.Path)))throw new CadException("GROUP_NOT_EMPTY","Chỉ xóa nhóm rỗng. Chuyển mẫu và nhóm con sang nơi khác trước; 5 khu gốc luôn được giữ.");
         nodes.RemoveAll(n=>n.Id==group.Id);LibraryFrames.Save(doc.Database,tx,nodes);LibraryFrames.Clear(doc.Database,tx);LibraryFrames.Build(doc.Database,tx,items);
     });
-    [CommandMethod("QALIBKEEP",CommandFlags.Modal|CommandFlags.UsePickSet)]public void Keep()=>Guard((doc,tx)=>{var group=PickFrame(doc,tx);var nodes=LibraryFrames.Nodes(doc.Database,tx);var node=nodes.Single(n=>n.Id==group.Id);node.Manual=!node.Manual;LibraryFrames.Save(doc.Database,tx,nodes);doc.Editor.WriteMessage(node.Manual?"\nĐã bật giữ bố trí khi nhận mẫu mới.":"\nĐã tắt giữ bố trí; có thể xếp gọn.");});
 }

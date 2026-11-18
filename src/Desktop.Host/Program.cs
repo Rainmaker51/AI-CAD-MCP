@@ -81,6 +81,9 @@ app.MapGet("/api/cad-tools",()=>{
 });
 app.MapGet("/api/cad-tools/mcp-config",()=>Out(CadToolMcpConfig.Create(config)));
 app.MapGet("/api/library-source/{hash}",(string hash)=>Out(CadSourceFile.Describe(config.ContentRoot,hash)));
+app.MapPost("/api/library-sync/replacement/options",async(HttpContext ctx,LibrarySyncService svc)=>Out(svc.ReplacementOptions(await Body(ctx))));
+app.MapPost("/api/library-sync/replacement/preview",async(HttpContext ctx,LibrarySyncService svc)=>Out(svc.PreviewReplacement(await Body(ctx))));
+app.MapPost("/api/library-sync/replacement/apply",async(HttpContext ctx,LibrarySyncService svc)=>Out(svc.ApplyReplacement(await Body(ctx))));
 app.MapGet("/api/library-sync",(LibrarySyncService svc)=>Out(svc.State()));
 app.MapPost("/api/library-sync/item",async(HttpContext ctx,LibrarySyncService svc)=>Out(svc.Save(await Body(ctx))));
 app.MapPost("/api/library-sync/scan",async(HttpContext ctx,LibrarySyncService svc)=>Out(await svc.Scan(ctx.RequestAborted)));

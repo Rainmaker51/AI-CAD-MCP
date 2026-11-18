@@ -62,17 +62,38 @@ public sealed class NativeTests
                 var grips=new FrameGrips();var points=new Point3dCollection();grips.GetGripPoints(frame,points,new IntegerCollection(),new IntegerCollection());Check(points.Count==3,"Missing frame resize grips");grips.MoveGripPointsAt(frame,new IntegerCollection(new[]{1}),new Vector3d(1000,-1000,0));Check(Math.Abs(frame.ScaleFactors.X-41000)<.01&&block.Position==position,"Grip changed sample or incorrect frame size");
                 var attributePosition=value.Position;LibraryFrames.MoveGroup(db,tx,target,new Vector3d(1000,-2000,0),items);Check(block.Position==position+new Vector3d(1000,-2000,0)&&value.Position==attributePosition+new Vector3d(1000,-2000,0)&&value.TextString=="GIỮ CHỮ","Group move lost sample/attribute state");
                 Check(LibrarySyncNative.ReadDrawing(db,tx).Single(i=>i.Id==items[0].Id).ContentSignature()==beforeHash,"Layout changed definition data");
-                nodes=LibraryFrames.Nodes(db,tx);nodes.Single(n=>n.Id==target.Id).Manual=true;LibraryFrames.Save(db,tx,nodes);try{LibraryFrames.PackGroup(db,tx,nodes.Single(n=>n.Id==target.Id),items);throw new System.Exception("Manual group packed");}catch(CadException e)when(e.Code=="LIBRARY_MANUAL"){}
+                nodes=LibraryFrames.Nodes(db,tx);nodes.Single(n=>n.Id==target.Id).Manual=true;LibraryFrames.Save(db,tx,nodes);
+                Check(LibraryFrames.Nodes(db,tx).All(n=>!n.Manual),"Legacy layout flag was not retired");
+                var sampleBounds=samples.Select(e=>e.GeometricExtents).ToArray();
+                var keptAttribute=value.Position;
+                LibrarySyncNative.ArrangeDrawing(db,tx,items);
+                Check(samples.Select((e,i)=>e.GeometricExtents.MinPoint==sampleBounds[i].MinPoint&&e.GeometricExtents.MaxPoint==sampleBounds[i].MaxPoint).All(v=>v)&&value.Position==keptAttribute,"Sync moved an existing sample or its attributes");
+                var newDefinition=new BlockTableRecord{Name="QA_LIB_NEW",Units=UnitsValue.Millimeters};
+                blocks.Add(newDefinition);tx.AddNewlyCreatedDBObject(newDefinition,true);
+                var newShape=new Line(Point3d.Origin,new Point3d(1500,800,0));
+                newDefinition.AppendEntity(newShape);tx.AddNewlyCreatedDBObject(newShape,true);
+                var newItem=LibrarySyncNative.ReadDrawing(db,tx).Single(i=>i.Kind=="blocks"&&i.Name=="QA_LIB_NEW");
+                LibrarySyncNative.AssignGroup(db,tx,newItem,target.Path);items.Add(newItem);
+                LibrarySyncNative.ArrangeDrawing(db,tx,items);
+                Check(samples.Select((e,i)=>e.GeometricExtents.MinPoint==sampleBounds[i].MinPoint&&e.GeometricExtents.MaxPoint==sampleBounds[i].MaxPoint).All(v=>v),"Adding a sample moved existing resources");
+                var newSample=LibraryFrames.Model(db,tx).OfType<BlockReference>().Single(e=>LibrarySyncNative.SampleMetadata(e,tx)?.Id==newItem.Id);
+                var newPosition=newSample.Position;
+                int glyphCount=LibraryFrames.Model(db,tx).Count(e=>LibrarySyncNative.SampleMetadata(e,tx)!=null);
+                LibrarySyncNative.ArrangeDrawing(db,tx,items);
+                Check(newSample.Position==newPosition&&glyphCount==LibraryFrames.Model(db,tx).Count(e=>LibrarySyncNative.SampleMetadata(e,tx)!=null),"Retry duplicated or moved samples");
+                var otherBounds=samples.Skip(1).Select(e=>e.GeometricExtents).ToArray();
+                LibraryFrames.PackGroup(db,tx,LibraryFrames.Nodes(db,tx).Single(n=>n.Id==target.Id),items);
+                Check(samples.Skip(1).Select((e,i)=>e.GeometricExtents.MinPoint==otherBounds[i].MinPoint).All(v=>v),"Packing one group moved another group");
                 Check(items.All(i=>LibrarySyncNative.ReadDrawing(db,tx).Single(n=>n.Id==i.Id).GroupEditedInCad),"CAD group edits not marked for app import");
                 tx.Commit();
             }
             db.SaveAs(Path.Combine(root,"library-manager-test.dwg"),DwgVersion.AC1032);
             using(var saved=new Database(false,true))
             {
-                saved.ReadDwgFile(Path.Combine(root,"library-manager-test.dwg"),FileOpenMode.OpenForReadAndAllShare,true,"");saved.CloseInput(true);HostApplicationServices.WorkingDatabase=saved;using var savedTx=saved.TransactionManager.StartOpenCloseTransaction();Check(LibraryFrames.Nodes(saved,savedTx).Count==16&&LibraryFrames.Nodes(saved,savedTx).Any(n=>n.Manual),"Group tree or manual mode not persisted");
+                saved.ReadDwgFile(Path.Combine(root,"library-manager-test.dwg"),FileOpenMode.OpenForReadAndAllShare,true,"");saved.CloseInput(true);HostApplicationServices.WorkingDatabase=saved;using var savedTx=saved.TransactionManager.StartOpenCloseTransaction();Check(LibraryFrames.Nodes(saved,savedTx).Count==16&&LibraryFrames.Nodes(saved,savedTx).All(n=>!n.Manual),"Group tree or legacy flag migration differs");
             }
             HostApplicationServices.WorkingDatabase=db;
-            AICad.Contracts.Json.Atomic(Path.Combine(root,"result.json"),new{passed=true,kinds=5,frames=16,editableSamples=true,attributesPreserved=true,resizeGrips=3,definitionUnchanged=true,manualMode=true,cadGroupsSyncable=true});
+            AICad.Contracts.Json.Atomic(Path.Combine(root,"result.json"),new{passed=true,kinds=5,frames=16,editableSamples=true,attributesPreserved=true,resizeGrips=3,definitionUnchanged=true,legacyFlagRetired=true,syncPreservesPositions=true,newSamplesAppend=true,retryStable=true,explicitPacking=true,cadGroupsSyncable=true});
         }
         catch(System.Exception error){AICad.Contracts.Json.Atomic(Path.Combine(root,"result.json"),new{passed=false,error=error.ToString()});}
         finally{HostApplicationServices.WorkingDatabase=previous;}

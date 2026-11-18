@@ -55,3 +55,17 @@ ribbons.DeleteTab(10,libraryTab);Check(ribbons.Read().Items.Single().TabId==CadT
 Reject(()=>ribbons.DeleteTab(11,CadToolCatalog.DefaultTabId),"RIBBON_DEFAULT_TAB");Reject(()=>ribbons.DeleteTab(11,"ACAD.ID_TabHome"),"RIBBON_TAB_MISSING");
 Reject(()=>ribbons.SaveTab(10,"","Stale",0),"STALE_EDIT");
 Console.WriteLine("PASS: legacy tab migration, create/rename/hide, whole-addin routing, per-command override, preserved assignments on update, safe tab deletion and protected native/default tabs");
+// Inherited Ribbon groups follow the saved tool group; explicit overrides remain separate.
+var groupedTool=ribbons.Read().Items.Single();
+var inheritedPin=groupedTool.RibbonPins.Single(p=>p.Command=="QATEST");
+Check(CadToolCatalog.RibbonGroup(groupedTool,inheritedPin)=="Mẫu");
+ribbons.Update(groupedTool.Id,11,groupedTool.Name,"Thư viện",groupedTool.Notes,true,groupedTool.Commands);
+groupedTool=ribbons.Read().Items.Single();
+Check(CadToolCatalog.RibbonGroup(groupedTool,groupedTool.RibbonPins.Single(p=>p.Command=="QATEST"))=="Thư viện");
+ribbons.SetRibbonPin(groupedTool.Id,12,new(){Command="QATEST2",Label="Riêng",Group="Nhóm riêng"},true);
+groupedTool=ribbons.Read().Items.Single();
+Check(CadToolCatalog.RibbonGroup(groupedTool,groupedTool.RibbonPins.Single(p=>p.Command=="QATEST2"))=="Nhóm riêng");
+ribbons.SetRibbonPin(groupedTool.Id,13,new(){Command="QATEST2",Label="Theo công cụ",Group=""},true);
+groupedTool=ribbons.Read().Items.Single();
+Check(CadToolCatalog.RibbonGroup(groupedTool,groupedTool.RibbonPins.Single(p=>p.Command=="QATEST2"))=="Thư viện");
+Console.WriteLine("PASS: inherited Ribbon groups follow profile changes and explicit groups can return to inheritance");

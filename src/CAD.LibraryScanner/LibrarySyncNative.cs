@@ -141,7 +141,7 @@ public sealed class LibrarySyncNative
         {
             var s = (TextStyleTableRecord)tx.GetObject(id, OpenMode.ForRead);
             if (s.IsDependent) continue;
-            result.Add(Item(s, tx, "texts", s.Name, JObject.FromObject(new { font = s.FileName, bigFont = s.BigFontFileName,
+            result.Add(Item(s, tx, "texts", s.Name, JObject.FromObject(new { font = Path.GetFileName(s.FileName), bigFont = Path.GetFileName(s.BigFontFileName),
                 height = s.TextSize, widthFactor = s.XScale, obliqueAngle = s.ObliquingAngle, vertical = s.IsVertical }), hints));
         }
         foreach (ObjectId id in (DimStyleTable)tx.GetObject(db.DimStyleTableId, OpenMode.ForRead))
@@ -327,6 +327,28 @@ public sealed class LibrarySyncNative
         edit.Commit();
     }
 
+    static string ResolveFontFile(Database db, string font, string styleName)
+    {
+        string name = Path.GetFileName(font);
+        if (!string.IsNullOrWhiteSpace(font) && Path.IsPathRooted(font) && File.Exists(font)) return font;
+        foreach (string folder in new[] {
+            Environment.GetFolderPath(Environment.SpecialFolder.Fonts),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "Windows", "Fonts"),
+            Path.Combine(Path.GetDirectoryName(typeof(Database).Assembly.Location)!, "Fonts") })
+        {
+            string candidate = Path.Combine(folder, name);
+            if (!string.IsNullOrWhiteSpace(name) && File.Exists(candidate)) return candidate;
+        }
+        try
+        {
+            string found = HostApplicationServices.Current.FindFile(name, db, FindFileHint.FontFile);
+            if (File.Exists(found)) return found;
+        }
+        catch (Autodesk.AutoCAD.Runtime.Exception) { }
+        throw new InvalidOperationException("FONT_MISSING: Text style " + styleName + " cần font " + name +
+            ". Cài font trên máy này hoặc chọn đúng file font trong bản nháp rồi đồng bộ lại.");
+    }
+
     static void Write(Database db, Transaction tx, LibrarySyncItem item, List<LibrarySyncItem> existing)
     {
         var old = existing.SingleOrDefault(i => i.Id == item.Id);
@@ -348,10 +370,10 @@ public sealed class LibrarySyncNative
             var style = old != null ? (TextStyleTableRecord)Resolve(db, tx, old) : new TextStyleTableRecord { Name = item.Name };
             if (old == null) { table.Add(style); tx.AddNewlyCreatedDBObject(style, true); } else { style.UpgradeOpen(); style.Name = item.Name; }
             string font = v.Value<string>("font")!;
-            string installed = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts),font);
-            if (!File.Exists(installed)) installed = HostApplicationServices.Current.FindFile(font, db, FindFileHint.FontFile);
-            if (!File.Exists(installed)) throw new InvalidOperationException("Font chưa được cài trên máy: " + font);
-            style.FileName = font; style.BigFontFileName = v.Value<string>("bigFont") ?? ""; style.TextSize = v.Value<double>("height"); style.XScale = v.Value<double>("widthFactor"); style.ObliquingAngle = v.Value<double>("obliqueAngle"); style.IsVertical = v.Value<bool>("vertical"); obj = style;
+            string installed = ResolveFontFile(db, font, item.Name);
+            string bigFont = v.Value<string>("bigFont") ?? "";
+            style.FileName = installed; style.BigFontFileName = string.IsNullOrWhiteSpace(bigFont) ? "" : ResolveFontFile(db, bigFont, item.Name);
+            style.TextSize = v.Value<double>("height"); style.XScale = v.Value<double>("widthFactor"); style.ObliquingAngle = v.Value<double>("obliqueAngle"); style.IsVertical = v.Value<bool>("vertical"); obj = style;
         }
         else if (item.Kind == "dims")
         {
@@ -367,7 +389,8 @@ public sealed class LibrarySyncNative
         {
             var table = (BlockTable)tx.GetObject(db.BlockTableId, OpenMode.ForRead);
             string name = v.Value<string>("donorHash") != null ? item.Name : old?.Name ?? item.Name;
-            if (!table.Has(name)) throw new InvalidOperationException("Nhập DWG chứa định nghĩa block trước.");
+            if (!table.Has(name)) throw new InvalidOperationException("BLOCK_SOURCE_MISSING: Thiếu định nghĩa block " + name +
+                ". Nhập DWG chứa block này trước, hoặc chọn Giữ để ra sau để đồng bộ các tài nguyên khác.");
             var block = (BlockTableRecord)tx.GetObject(table[name], OpenMode.ForWrite); block.Name = item.Name; obj = block;
         }
         else
@@ -414,7 +437,78 @@ public sealed class LibrarySyncNative
 
     static void Gallery(Database db, Transaction tx, List<LibrarySyncItem> items, JObject request)
     {
-        if(LibraryFrames.Nodes(db,tx).Any(n=>n.Manual))throw new InvalidOperationException("Có nhóm đang Giữ bố trí thủ công. Dùng add-in xếp gọn riêng nhóm khác, hoặc tắt Giữ bố trí trước khi dựng lại toàn bộ thư viện.");
+        if(!LibraryFrames.Model(db,tx).Any(e=>SampleMetadata(e,tx)!=null)){
+            CreateGallery(db,tx,items,request);return;
+        }
+        var ids=items.Select(i=>i.Id).ToHashSet();
+        foreach(var entity in LibraryFrames.Model(db,tx).ToArray()){
+            var tag=SampleMetadata(entity,tx);
+            if(tag==null||ids.Contains(tag.Id))continue;
+            var resource=Metadata(entity,tx,ResourceKey);
+            if(resource!=null&&resource.Handle==entity.Handle.ToString())continue;
+            entity.UpgradeOpen();entity.Erase();
+        }
+        var bt=(BlockTable)tx.GetObject(db.BlockTableId,OpenMode.ForRead);
+        var model=(BlockTableRecord)tx.GetObject(bt[BlockTableRecord.ModelSpace],OpenMode.ForWrite);
+        var added=new List<LibrarySyncItem>();
+        foreach(var item in items){
+            var glyph=LibraryFrames.Model(db,tx).Where(e=>SampleMetadata(e,tx)?.Id==item.Id).ToArray();
+            var sample=glyph.FirstOrDefault(e=>item.Kind=="blocks"&&e is BlockReference||
+                item.Kind=="layers"&&e is Line||item.Kind=="hatches"&&e is Hatch||
+                item.Kind=="texts"&&e is DBText||item.Kind=="dims"&&e is Dimension);
+            if(sample==null){
+                foreach(var stale in glyph){stale.UpgradeOpen();stale.Erase();}
+                var resource=Resolve(db,tx,item);
+                sample=resource switch{
+                    LayerTableRecord layer=>new Line(Point3d.Origin,new Point3d(5200,0,0)){LayerId=layer.ObjectId,ColorIndex=256,LinetypeScale=100},
+                    BlockTableRecord block=>new BlockReference(Point3d.Origin,block.ObjectId),
+                    TextStyleTableRecord text=>new DBText{TextString="Aa Bb 0123456789 – Mẫu chữ",TextStyleId=text.ObjectId,Height=text.TextSize>0?text.TextSize:200},
+                    DimStyleTableRecord dim=>new RotatedDimension(0,Point3d.Origin,new Point3d(3000,0,0),new Point3d(0,800,0),"",dim.ObjectId),
+                    Hatch hatch=>(Hatch)hatch,
+                    _=>throw new InvalidOperationException("Không tạo được mẫu "+item.Name)
+                };
+                if(sample.ObjectId.IsNull){model.AppendEntity(sample);tx.AddNewlyCreatedDBObject(sample,true);}
+                if(sample is BlockReference reference){
+                    var definition=(BlockTableRecord)tx.GetObject(reference.BlockTableRecord,OpenMode.ForRead);
+                    foreach(ObjectId child in definition)
+                        if(tx.GetObject(child,OpenMode.ForRead) is AttributeDefinition attribute&&!attribute.Constant){
+                            var value=new AttributeReference();value.SetAttributeFromBlock(attribute,reference.BlockTransform);value.TextString=attribute.TextString;
+                            reference.AttributeCollection.AppendAttribute(value);tx.AddNewlyCreatedDBObject(value,true);
+                        }
+                }
+                if(sample is Dimension dimension)dimension.RecomputeDimensionBlock(true);
+                if(sample is Hatch display){display.UpgradeOpen();display.Associative=false;}
+                MarkSample(sample,tx,item);
+                LibraryFrames.AddCell(db,tx,item,sample);
+                added.Add(item);
+            }else if(!glyph.OfType<Polyline>().Any(e=>e.Closed&&e.NumberOfVertices==4)){
+                LibraryFrames.AddCell(db,tx,item,sample);
+            }
+            foreach(var label in LibraryFrames.Model(db,tx).OfType<MText>().Where(e=>SampleMetadata(e,tx)?.Id==item.Id)){
+                label.UpgradeOpen();
+                var lines=label.Text.Replace("\r","").Split('\n').ToList();
+                if(lines.Count>0)lines[0]=item.Name;
+                foreach(var field in new[]{new{Key="Nhóm | ",Value=item.Group},new{Key="Công dụng | ",Value=item.Purpose},new{Key="Ghi chú | ",Value=item.Notes}}){
+                    int index=lines.FindIndex(line=>line.StartsWith(field.Key,StringComparison.Ordinal));
+                    if(index>=0)lines[index]=field.Key+field.Value;else lines.Add(field.Key+field.Value);
+                }
+                label.Contents=string.Join("\\P",lines.Select(Safe));
+            }
+        }
+        var nodes=LibraryFrames.Nodes(db,tx);
+        foreach(string kind in LibrarySyncRules.Kinds)LibraryFrames.Ensure(nodes,kind,"");
+        foreach(var item in items)LibraryFrames.Ensure(nodes,item.Kind,item.Group);
+        LibraryFrames.Save(db,tx,nodes);
+        foreach(var group in added.GroupBy(i=>new{i.Kind,i.Group})){
+            var node=nodes.Single(n=>n.Kind==group.Key.Kind&&n.Path==group.Key.Group);
+            LibraryFrames.AppendToGroup(db,tx,node,items,group.ToList());
+        }
+        LibraryFrames.Clear(db,tx);
+        LibraryFrames.Build(db,tx,items);
+    }
+
+    static void CreateGallery(Database db, Transaction tx, List<LibrarySyncItem> items, JObject request)
+    {
         var blocks=(BlockTable)tx.GetObject(db.BlockTableId,OpenMode.ForRead);
         var model=(BlockTableRecord)tx.GetObject(blocks[BlockTableRecord.ModelSpace],OpenMode.ForWrite);
         var preserved=new Dictionary<string,Entity>();

@@ -11,7 +11,7 @@ using Newtonsoft.Json.Linq;
 
 namespace AICad.Application;
 
-public sealed class LibrarySyncService(InstallConfig config)
+public sealed partial class LibrarySyncService(InstallConfig config)
 {
     readonly SemaphoreSlim gate = new(1, 1);
     string Warehouse => WarehousePaths.Resolve(config.ContentRoot);

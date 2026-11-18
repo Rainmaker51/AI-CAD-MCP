@@ -14,6 +14,7 @@ public sealed class LibraryFrameNode
     public string Kind { get; set; } = "";
     public string Path { get; set; } = "";
     public string Parent { get; set; } = "";
+    [Newtonsoft.Json.JsonProperty(DefaultValueHandling=Newtonsoft.Json.DefaultValueHandling.Ignore)]
     public bool Manual { get; set; }
     public double RequestedWidth { get; set; }
     public double RequestedHeight { get; set; }
@@ -48,9 +49,15 @@ public static class LibraryFrames
     public static bool Initialized(Database db,Transaction tx)=>ReadRecord(tx.GetObject(db.NamedObjectsDictionaryId,OpenMode.ForRead),tx,Registry)!=null;
     public static List<LibraryFrameNode> Nodes(Database db,Transaction tx)
     {
-        var data=ReadRecord(tx.GetObject(db.NamedObjectsDictionaryId,OpenMode.ForRead),tx,Registry);return data?["nodes"]?.ToObject<List<LibraryFrameNode>>()??new();
+        var data=ReadRecord(tx.GetObject(db.NamedObjectsDictionaryId,OpenMode.ForRead),tx,Registry);
+        var nodes=data?["nodes"]?.ToObject<List<LibraryFrameNode>>()??new();
+        foreach(var node in nodes)node.Manual=false;
+        return nodes;
     }
-    public static void Save(Database db,Transaction tx,List<LibraryFrameNode> nodes)=>Record(tx.GetObject(db.NamedObjectsDictionaryId,OpenMode.ForWrite),tx,Registry,new{version=1,nodes});
+    public static void Save(Database db,Transaction tx,List<LibraryFrameNode> nodes){
+        foreach(var node in nodes)node.Manual=false;
+        Record(tx.GetObject(db.NamedObjectsDictionaryId,OpenMode.ForWrite),tx,Registry,new{version=1,nodes});
+    }
     public static LibraryFrameNode? Info(DBObject obj,Transaction tx)=>ReadRecord(obj,tx,FrameKey)?.ToObject<LibraryFrameNode>();
     public static IEnumerable<Entity> Model(Database db,Transaction tx)
     {
@@ -181,7 +188,6 @@ public static class LibraryFrames
     }
     public static void PackGroup(Database db,Transaction tx,LibraryFrameNode group,List<LibrarySyncItem> items)
     {
-        if(Nodes(db,tx).Any(n=>n.Kind==group.Kind&&Under(n.Path,group.Path)&&n.Manual))throw new CadException("LIBRARY_MANUAL","Nhóm hoặc nhóm con đang giữ bố trí thủ công. Tắt Giữ bố trí trước khi xếp gọn.");
         var frame=Model(db,tx).OfType<BlockReference>().FirstOrDefault(b=>Info(b,tx)?.Id==group.Id)??throw new CadException("LIBRARY_FRAME","Chưa có khung; khởi tạo bố trí trước.");
         double left=frame.Position.X+800,top=frame.Position.Y-1600,x=left,y=top,rowHeight=0,available=Math.Max(17000,Math.Abs(frame.ScaleFactors.X)-1600);
         var entities=Model(db,tx).ToArray();
@@ -198,6 +204,44 @@ public static class LibraryFrames
         }
         Clear(db,tx);Build(db,tx,items);
     }
+    public static void AppendToGroup(Database db,Transaction tx,LibraryFrameNode group,List<LibrarySyncItem> items,List<LibrarySyncItem> additions)
+    {
+        if(additions.Count==0)return;
+        var ids=additions.Select(i=>i.Id).ToHashSet();
+        var entities=Model(db,tx).ToArray();
+        var cells=entities.OfType<Polyline>().Where(e=>e.Closed&&e.NumberOfVertices==4)
+            .Select(e=>new{entity=e,tag=LibrarySyncNative.SampleMetadata(e,tx)})
+            .Where(e=>e.tag!=null&&!ids.Contains(e.tag.Id)).ToArray();
+        var inGroup=items.Where(i=>i.Kind==group.Kind&&Under(i.Group,group.Path)).Select(i=>i.Id).ToHashSet();
+        var occupied=cells.Select(e=>e.entity.GeometricExtents).ToList();
+        var contents=cells.Where(e=>inGroup.Contains(e.tag!.Id)).Select(e=>e.entity.GeometricExtents).ToArray();
+        var frame=entities.OfType<BlockReference>().FirstOrDefault(e=>Info(e,tx)?.Id==group.Id);
+        double x=contents.Length>0?contents.Min(b=>b.MinPoint.X):
+            frame!=null?frame.Position.X+800:100000+Array.IndexOf(LibrarySyncRules.Kinds,group.Kind)*65000;
+        double top=contents.Length>0?contents.Min(b=>b.MinPoint.Y)-1000:
+            frame!=null?frame.Position.Y-1600:occupied.Count>0?occupied.Min(b=>b.MinPoint.Y)-6000:0;
+        foreach(var item in additions)
+        {
+            var glyph=entities.Where(e=>LibrarySyncNative.SampleMetadata(e,tx)?.Id==item.Id).ToArray();
+            var cell=glyph.OfType<Polyline>().FirstOrDefault(e=>e.Closed&&e.NumberOfVertices==4);
+            if(cell==null)throw new CadException("LIBRARY_SAMPLE","Mẫu chưa có ô quản lý: "+item.Name);
+            var bounds=cell.GeometricExtents;
+            double width=bounds.MaxPoint.X-bounds.MinPoint.X,height=bounds.MaxPoint.Y-bounds.MinPoint.Y;
+            bool overlaps;
+            do{
+                overlaps=false;
+                foreach(var box in occupied)
+                    if(x<box.MaxPoint.X+450&&x+width>box.MinPoint.X-450&&top>box.MinPoint.Y-450&&top-height<box.MaxPoint.Y+450){
+                        top=box.MinPoint.Y-1000;overlaps=true;break;
+                    }
+            }while(overlaps);
+            var offset=new Vector3d(x-bounds.MinPoint.X,top-bounds.MaxPoint.Y,0);
+            foreach(var entity in glyph)Translate(entity,tx,offset);
+            occupied.Add(new Extents3d(new Point3d(x,top-height,0),new Point3d(x+width,top,0)));
+            top-=height+1000;
+        }
+    }
+
     public static void AddCell(Database db,Transaction tx,LibrarySyncItem item,Entity sample)
     {
         if(Model(db,tx).OfType<Polyline>().Any(e=>e.Closed&&LibrarySyncNative.SampleMetadata(e,tx)?.Id==item.Id))return;
