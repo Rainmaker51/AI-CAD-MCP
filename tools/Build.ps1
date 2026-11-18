@@ -22,6 +22,12 @@ try {
   if($LASTEXITCODE -ne 0){throw "Build failed: $name"}
   if($name -eq 'CAD.Bridge.AutoCAD'){[Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $buildRoot "$Release/$dest/CAD.Bridge.AutoCAD.dll")).FileVersion | Set-Content -LiteralPath (Join-Path $buildRoot "$Release/$dest/plugin-version.txt") -Encoding ascii}
  }
+ if($Component -eq 'All' -or $Component -eq 'AutoCAD'){
+  & $sdk publish 'src/Rainmaker.Axis/Rainmaker.Axis.csproj' -c Release -o "$buildRoot/$Release/AxisPackage"
+  if($LASTEXITCODE -ne 0){throw 'Rainmaker Axis add-in build failed'}
+  & $sdk publish 'src/Rainmaker.Library/Rainmaker.Library.csproj' -c Release -o "$buildRoot/$Release/LibraryPackage"
+  if($LASTEXITCODE -ne 0){throw 'Rainmaker Library add-in build failed'}
+ }
  if($Component -eq 'All' -or $Component -eq 'Host'){
   & $sdk publish 'src/CAD.HashCompat/CAD.HashCompat.csproj' -c Release -o "$buildRoot/$Release/Host/HashCompat"
   if($LASTEXITCODE -ne 0){throw 'Framework digest helper build failed'}
@@ -45,6 +51,15 @@ try {
  $config=[ordered]@{DataRoot=$dataRoot;ContentRoot=$repo;HostExecutable=(Join-Path $buildRoot "$RuntimeRelease/Host/AICad.Host.exe");PythonExecutable=$(if($python){[string]$python}else{$null});CodexExecutable=$(if($codex){[string]$codex}else{$null})}
  [IO.Directory]::CreateDirectory((Join-Path $repo $data))|Out-Null
  $config|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $buildRoot "$Release/install.json") -Encoding utf8
- if($Test){& $sdk run --project tests/AICad.Tests/AICad.Tests.csproj -c Release;if($LASTEXITCODE -ne 0){throw 'Tests failed'}}
+ if($Test){
+  & $sdk run --project tests/ToolManager.Tests/ToolManager.Tests.csproj -c Release
+  if($LASTEXITCODE -ne 0){throw 'Tool Manager tests failed'}
+  & $sdk run --project tests/AICad.Tests/AICad.Tests.csproj -c Release
+  if($LASTEXITCODE -ne 0){throw 'Tests failed'}
+  & $sdk run --project tests/Rainmaker.Axis.Tests/Rainmaker.Axis.Tests.csproj -c Release
+  if($LASTEXITCODE -ne 0){throw 'Axis grid tests failed'}
+  & $sdk run --project tests/LibrarySync.Tests/LibrarySync.Tests.csproj -c Release
+  if($LASTEXITCODE -ne 0){throw 'Library sync tests failed'}
+ }
  Write-Host 'Build ready. Open Mo AI CAD.cmd.'
 }finally{Pop-Location}

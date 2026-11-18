@@ -7,6 +7,32 @@ using JsonUtil=AICad.Contracts.Json;
 [assembly:CommandClass(typeof(AICad.Bridge.CadToolNativeTests))]
 namespace AICad.Bridge;
 public sealed class CadToolNativeTests {
+ [CommandMethod("AICADRIBBONMANAGERTEST")]
+ public void VerifyManagedTabs(){
+  string root=Environment.GetEnvironmentVariable("AICAD_TOOL_TEST_ROOT")??"";if(!Path.IsPathRooted(root)||!File.Exists(Path.Combine(root,".aicad-tools-test")))return;
+  try{
+   string app=Path.Combine(root,"r-"+Guid.NewGuid().ToString("N").Substring(0,8));Directory.CreateDirectory(app);var catalog=new CadToolCatalog(app);var config=new InstallConfig{ContentRoot=app,DataRoot=Path.Combine(root,"d"),HostExecutable=Plugin.Current!.Config.HostExecutable};string dispatched="";
+   using var runtime=new CadToolRuntime(config,(id,command)=>dispatched=id+":"+command);
+   var tool=catalog.Import(Path.Combine(root,"library","Rainmaker.Library.dll"),0);var loaded=runtime.Load(tool);
+   if(loaded.Commands.Count!=18||loaded.Commands.Any(c=>c.Name.EndsWith("TEST")||c.Name=="QALIBUIVERIFY"))throw new System.Exception("Managed command manifest not respected");
+   catalog.Update(tool.Id,1,"Thư viện","Thư viện","",true,loaded.Commands.Select(c=>c.Name));string tab=catalog.SaveTab(2,"","Thư viện",10);
+   catalog.Update(tool.Id,3,"Thư viện","Thư viện","",true,loaded.Commands.Select(c=>c.Name),tabId:tab);catalog.PinCommands(tool.Id,4,loaded.Commands.Select(c=>c.SuggestedPin!));
+   loaded.Assembly.GetType("Rainmaker.Library.LibraryPlugin")!.GetMethod("Send",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic)!.Invoke(null,new object[]{"QALIBPACK"});if(dispatched!=tool.Id+":QALIBPACK")throw new System.Exception("Palette bypassed Manager dispatcher");
+   var control=new Autodesk.Windows.RibbonControl();var external=new Autodesk.Windows.RibbonTab{Id="EXTERNAL_NATIVE_HOME",Title="Home"};control.Tabs.Add(external);var fake=new Plugin{Config=config};var renderer=new RainmakerRibbon(fake);renderer.RenderForTest(control,catalog.Read());
+   var created=control.Tabs.Single(t=>t.Id==RainmakerRibbon.NativeTabId(tab));var labels=created.Panels.SelectMany(p=>p.Source.Items).OfType<Autodesk.Windows.RibbonButton>().Select(b=>b.Text).ToArray();if(!labels.Contains("Nhận vào nhóm")||!labels.Contains("Chuyển nhóm")||!labels.Contains("Xếp gọn nhóm"))throw new System.Exception("Library command labels missing");
+   catalog.SaveTab(5,tab,"Thư viện mới",20);renderer.RenderForTest(control,catalog.Read());if(control.Tabs.Single(t=>t.Id==RainmakerRibbon.NativeTabId(tab)).Title!="Thư viện mới")throw new System.Exception("Tab rename failed");
+   catalog.DeleteTab(6,tab);renderer.RenderForTest(control,catalog.Read());if(control.Tabs.Any(t=>t.Id==RainmakerRibbon.NativeTabId(tab))||!control.Tabs.Contains(external)||!control.Tabs.Single(t=>t.Id==RainmakerRibbon.TabId).Panels.SelectMany(p=>p.Source.Items).OfType<Autodesk.Windows.RibbonButton>().Any(b=>b.Text=="Nhận vào nhóm"))throw new System.Exception("Delete tab removed external UI or lost command routing");
+   File.WriteAllText(Path.Combine(root,"native-step.txt"),"before-disable");
+   runtime.Disable(tool.Id);File.WriteAllText(Path.Combine(root,"native-step.txt"),"after-disable");if(loaded.Assembly.GetType("Rainmaker.Library.LibraryPlugin")!.GetField("Current",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!=null)throw new System.Exception("Disable did not stop addin lifecycle");
+   renderer.Remove();File.WriteAllText(Path.Combine(root,"native-step.txt"),"after-remove");if(control.Tabs.Count!=1||control.Tabs[0]!=external)throw new System.Exception("Manager removed foreign tabs");
+   if(System.Diagnostics.Process.GetCurrentProcess().ProcessName.Equals("acad",StringComparison.OrdinalIgnoreCase))using(var palette=new CadToolPalette(fake)){
+    var tabs=(System.Windows.Controls.TabControl)typeof(CadToolPalette).GetField("tabs",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(palette);tabs.SelectedIndex=2;
+    var view=(System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(tabs);view.Measure(new System.Windows.Size(620,860));view.Arrange(new System.Windows.Rect(0,0,620,860));view.UpdateLayout();
+    var bitmap=new System.Windows.Media.Imaging.RenderTargetBitmap(620,860,96,96,System.Windows.Media.PixelFormats.Pbgra32);bitmap.Render(view);var encoder=new System.Windows.Media.Imaging.PngBitmapEncoder();encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));using var output=File.Create(Path.Combine(root,"ribbon-manager-palette.png"));encoder.Save(output);
+   }
+   JsonUtil.Atomic(Path.Combine(root,"ribbon-manager-results.json"),new{passed=true,managedCommands=18,customTabs=true,paletteDispatch=true,rename=true,deleteMovesCommands=true,externalTabsPreserved=true,disableTerminates=true});
+  }catch(System.Exception error){JsonUtil.Atomic(Path.Combine(root,"ribbon-manager-results.json"),new{passed=false,error=error.ToString()});}
+ }
  [CommandMethod("AICADTOOLSTEST")]
  public void Run(){string root=Environment.GetEnvironmentVariable("AICAD_TOOL_TEST_ROOT")??"";if(!Path.IsPathRooted(root)||!File.Exists(Path.Combine(root,".aicad-tools-test")))return;
   try{

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net48</TargetFramework><PlatformTarget>x64</PlatformTarget><Version>1.1.0</Version><AutoCadDir Condition="'$(AutoCadDir)'==''">C:/Program Files/Autodesk/AutoCAD 2021</AutoCadDir></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../CAD.LibraryScanner/CAD.LibraryScanner.csproj" />
+    <Reference Include="acmgd" HintPath="$(AutoCadDir)/acmgd.dll" Private="false" />
+    <Reference Include="acdbmgd" HintPath="$(AutoCadDir)/acdbmgd.dll" Private="false" />
+    <Reference Include="accoremgd" HintPath="$(AutoCadDir)/accoremgd.dll" Private="false" />
+    <Reference Include="AdWindows" HintPath="$(AutoCadDir)/AdWindows.dll" Private="false" />
+    <Reference Include="System.Drawing" /><Reference Include="PresentationCore" /><Reference Include="PresentationFramework" /><Reference Include="WindowsBase" /><Reference Include="System.Xaml" />
+    <EmbeddedResource Include="../CAD.Bridge.AutoCAD/CadToolTheme.xaml" Link="CadToolTheme.xaml" />
+  </ItemGroup>
+</Project>

@@ -12,13 +12,18 @@ using AcApp = Autodesk.AutoCAD.ApplicationServices.Core.Application;
 
 namespace Rainmaker.Axis;
 
-public sealed class RainmakerAxis
+public sealed partial class RainmakerAxis
 {
     const string AxisLayer = "QA_KT_Truc";
     const string HeadLayer = "QA_KH_Truc Dinh Vi";
 
     [CommandMethod(CadToolCatalog.AxisCommand, CommandFlags.Modal)]
-    public static void Run()
+    public static void Run() => RunCore(true);
+
+    [CommandMethod("-RAINMAKERAXIS", CommandFlags.Modal)]
+    public static void RunCommandLine() => RunCore(false);
+
+    static void RunCore(bool showDialog)
     {
         var plugin = Plugin.Current ??
             throw new CadException("PLUGIN_OFFLINE", "Mở AutoCAD với plugin AI CAD trước khi chạy Tạo trục.");
@@ -32,6 +37,27 @@ public sealed class RainmakerAxis
             throw new CadException("WRONG_CONTEXT", "Mở Model và đặt đơn vị bản vẽ là mm.");
         NativeWriteGuard.Check(doc);
         var editor = doc.Editor;
+        AxisGridParameters? parameters = null;
+        bool single;
+        if (showDialog)
+        {
+            double currentScale = doc.Database.Cannoscale.DrawingUnits / doc.Database.Cannoscale.PaperUnits;
+            var dialog = new AxisGridDialog(currentScale);
+            if (Autodesk.AutoCAD.ApplicationServices.Application.ShowModalWindow(dialog) != true) return;
+            parameters = dialog.Parameters!;
+            single = parameters.Single;
+        }
+        else
+        {
+            var mode = editor.GetKeywords(new PromptKeywordOptions("\nTạo trục [Grid/Single] <Grid>: ", "Grid Single") { AllowNone = true });
+            if (mode.Status != PromptStatus.OK && mode.Status != PromptStatus.None) return;
+            single = mode.StringResult == "Single";
+        }
+        if (!single)
+        {
+            RunGrid(doc, new ContentStore(plugin.Config.ContentRoot).Template("ISO_QUANGANH"), parameters);
+            return;
+        }
         var first = editor.GetPoint("\nChọn đầu thứ nhất của trục: ");
         if (first.Status != PromptStatus.OK) return;
         var second = editor.GetPoint(new PromptPointOptions("\nChọn đầu thứ hai của trục: ")
@@ -40,11 +66,25 @@ public sealed class RainmakerAxis
             BasePoint = first.Value
         });
         if (second.Status != PromptStatus.OK) return;
-        var name = editor.GetString(new PromptStringOptions("\nKý hiệu trục (ví dụ A hoặc 1): ") { AllowSpaces = false });
-        if (name.Status != PromptStatus.OK) return;
+        string label = parameters?.SingleLabel ?? "";
+        if (parameters == null)
+        {
+            var name = editor.GetString(new PromptStringOptions("\nKý hiệu trục (ví dụ A hoặc 1): ") { AllowSpaces = false });
+            if (name.Status != PromptStatus.OK) return;
+            label = name.StringResult.Trim();
+        }
+        int? denominator = parameters?.Scale ?? ReadScale(doc);
+        if (!denominator.HasValue) return;
+        Write(doc.Database, new ContentStore(plugin.Config.ContentRoot).Template("ISO_QUANGANH"),
+            first.Value, second.Value, label, denominator.Value);
+        editor.WriteMessage("\nRainmaker: Đã tạo trục " + label + ".");
+    }
+
+    static int? ReadScale(Autodesk.AutoCAD.ApplicationServices.Document doc)
+    {
         double current = doc.Database.Cannoscale.DrawingUnits / doc.Database.Cannoscale.PaperUnits;
         int defaultScale = current >= 2 && current <= 1000 ? (int)Math.Round(current) : 60;
-        var scale = editor.GetInteger(new PromptIntegerOptions($"\nMẫu số tỷ lệ <{defaultScale}>: ")
+        var scale = doc.Editor.GetInteger(new PromptIntegerOptions("\nMẫu số tỷ lệ: ")
         {
             AllowNone = true,
             UseDefaultValue = true,
@@ -52,11 +92,8 @@ public sealed class RainmakerAxis
             LowerLimit = 1,
             UpperLimit = 1000
         });
-        if (scale.Status != PromptStatus.OK && scale.Status != PromptStatus.None) return;
-        int denominator = scale.Status == PromptStatus.None ? defaultScale : scale.Value;
-        Write(doc.Database, new ContentStore(plugin.Config.ContentRoot).Template("ISO_QUANGANH"),
-            first.Value, second.Value, name.StringResult.Trim(), denominator);
-        editor.WriteMessage("\nRainmaker: Đã tạo trục " + name.StringResult.Trim() + ".");
+        if (scale.Status != PromptStatus.OK && scale.Status != PromptStatus.None) return null;
+        return scale.Status == PromptStatus.None ? defaultScale : scale.Value;
     }
 
     internal static void Write(Database db, TemplateProfile template, Point3d first, Point3d second, string label, int scale)

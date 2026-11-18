@@ -19,7 +19,7 @@ internal sealed class RainmakerRibbon
     readonly Plugin plugin;
     readonly CadToolCatalog catalog;
     RibbonControl? owner;
-    RibbonTab? tab;
+    readonly Dictionary<string, RibbonTab> managedTabs = new();
     int? revision;
     DateTime nextRead;
 
@@ -30,74 +30,60 @@ internal sealed class RainmakerRibbon
     }
 
     internal void Invalidate() => nextRead = DateTime.MinValue;
+    internal void RenderForTest(RibbonControl control,CadToolIndex index){owner=control;Populate(index);}
 
     internal void Update()
     {
-        if (DateTime.UtcNow < nextRead) return;
-        nextRead = DateTime.UtcNow.AddSeconds(4);
+        if(DateTime.UtcNow<nextRead)return;nextRead=DateTime.UtcNow.AddSeconds(4);
         try
         {
-            var ribbon = ComponentManager.Ribbon;
-            if (ribbon == null) return;
-            if (tab == null || owner != ribbon || !ribbon.Tabs.Contains(tab))
-            {
-                Remove();
-                owner = ribbon;
-                tab = new RibbonTab { Id = TabId, Title = "Rainmaker" };
-                Populate(new CadToolIndex());
-                ribbon.Tabs.Add(tab);
-                ribbon.LayoutUpdated += CenterVerticalPanels;
-                revision = null;
-            }
-            var index = catalog.Read();
-            if (revision == index.Revision) return;
-            Populate(index);
-            revision = index.Revision;
+            var ribbon=ComponentManager.Ribbon;if(ribbon==null)return;
+            if(owner!=ribbon){Remove();owner=ribbon;owner.LayoutUpdated+=CenterVerticalPanels;}
+            var index=catalog.Read();
+            if(CanRun())plugin.Tools?.Synchronize(index);
+            if(revision==index.Revision&&managedTabs.Count>0&&managedTabs.Values.All(ribbon.Tabs.Contains))return;
+            Populate(index);revision=index.Revision;
         }
-        catch (System.Exception e)
-        {
-            System.Diagnostics.Trace.TraceWarning("Rainmaker Ribbon: {0}", e.Message);
-        }
+        catch(System.Exception error){System.Diagnostics.Trace.TraceWarning("CAD Manager Ribbon: {0}",error.Message);}
     }
 
+    internal static string NativeTabId(string id)=>id==CadToolCatalog.DefaultTabId?TabId:"AICAD_TOOLS_TAB_"+id;
     void Populate(CadToolIndex index)
     {
-        var groups = new Dictionary<string, RibbonPanelSource>(StringComparer.OrdinalIgnoreCase);
-        var panels = new List<RibbonPanel>();
-        void Add(string group, RibbonButton button)
+        if(owner==null)return;
+        string? active=owner.ActiveTab?.Id;
+        var definitions=index.Tabs.Where(t=>t.Id==CadToolCatalog.DefaultTabId||t.Enabled).OrderBy(t=>t.Order).ThenBy(t=>t.Name,StringComparer.CurrentCultureIgnoreCase).ToList();
+        foreach(var previous in managedTabs.Values)owner.Tabs.Remove(previous);
+        foreach(string removed in managedTabs.Keys.Where(id=>definitions.All(t=>t.Id!=id)).ToArray())managedTabs.Remove(removed);
+        string Target(CadToolEntry tool,CadRibbonPin pin)
         {
-            if (!groups.TryGetValue(group, out var panel))
+            string id=pin.TabId!=""?pin.TabId:tool.TabId;
+            return index.Tabs.Any(t=>t.Id==id)?id:CadToolCatalog.DefaultTabId;
+        }
+        foreach(var definition in definitions)
+        {
+            if(!managedTabs.TryGetValue(definition.Id,out var tab)){tab=new RibbonTab{Id=NativeTabId(definition.Id)};managedTabs.Add(definition.Id,tab);}
+            tab.Title=definition.Name;tab.Panels.Clear();var panels=new Dictionary<string,RibbonPanelSource>(StringComparer.OrdinalIgnoreCase);
+            void Add(string group,RibbonButton button)
             {
-                panel = new RibbonPanelSource { Title = group };
-                groups.Add(group, panel);
-                panels.Add(new RibbonPanel { Source = panel });
+                if(!panels.TryGetValue(group,out var panel)){panel=new RibbonPanelSource{Title=group};panels.Add(group,panel);tab.Panels.Add(new RibbonPanel{Source=panel});}panel.Items.Add(button);
             }
-            panel.Items.Add(button);
+            var pins=index.Items.Where(t=>t.Kind=="dotnet"&&t.Enabled&&!t.DeletedUtc.HasValue)
+                .SelectMany(tool=>tool.RibbonPins.Where(pin=>tool.Commands.Contains(pin.Command,StringComparer.OrdinalIgnoreCase)&&Target(tool,pin)==definition.Id)
+                .Select(pin=>new{Tool=tool,Pin=pin,Group=First(pin.Group,tool.Group,"Công cụ")}))
+                .OrderBy(p=>p.Group,StringComparer.CurrentCultureIgnoreCase).ThenBy(p=>p.Pin.Order).ThenBy(p=>p.Pin.Label,StringComparer.CurrentCultureIgnoreCase);
+            foreach(var pin in pins)Add(pin.Group,Button(First(pin.Pin.Label,pin.Pin.Command),First(pin.Pin.Description,pin.Tool.Notes,pin.Pin.Command),pin.Pin.Icon,
+                ()=>(plugin.Tools??=new CadToolPalette(plugin)).QueueRibbon(pin.Tool.Id,pin.Pin.Command)));
+            Add(ManagerGroup,Button("CAD Tool Manager","Quản lý add-in, tab ribbon và nút lệnh.","Công cụ",()=>Send("AICADTOOLS")));
+            owner.Tabs.Add(tab);if(tab.Id==active)tab.IsActive=true;
         }
-
-        var pins = index.Items.Where(tool => tool.Enabled && !tool.DeletedUtc.HasValue)
-            .Where(tool => tool.Kind == "dotnet")
-            .SelectMany(tool => tool.RibbonPins.Where(pin => tool.Commands.Contains(pin.Command, StringComparer.OrdinalIgnoreCase))
-                .Select(pin => new { Tool = tool, Pin = pin, Group = First(pin.Group, tool.Group, "Công cụ") }))
-            .OrderBy(item => item.Group, StringComparer.CurrentCultureIgnoreCase).ThenBy(item => item.Pin.Order)
-            .ThenBy(item => item.Pin.Label, StringComparer.CurrentCultureIgnoreCase).ThenBy(item => item.Pin.Command);
-        foreach (var item in pins)
-        {
-            Add(item.Group, Button(First(item.Pin.Label, item.Pin.Command),
-                First(item.Pin.Description, item.Tool.Notes, item.Pin.Command), item.Pin.Icon,
-                () => (plugin.Tools ??= new CadToolPalette(plugin)).QueueRibbon(item.Tool.Id, item.Pin.Command)));
-        }
-        Add(ManagerGroup, Button("CAD Tool Manager", "Thêm, cập nhật và ghim lệnh .NET.", "Công cụ",
-            () => Send("AICADTOOLS")));
-        tab!.Panels.Clear();
-        foreach (var panel in panels) tab.Panels.Add(panel);
     }
-
     static string First(params string[] values) => values.First(value => !string.IsNullOrWhiteSpace(value));
 
     void CenterVerticalPanels(object? sender, EventArgs e)
     {
-        if (owner == null || tab == null || owner.ActiveTab != tab || owner.RibbonOrientation != Orientation.Vertical)
+        var tab=owner?.ActiveTab;
+        if (owner == null || tab == null || !managedTabs.Values.Contains(tab) || owner.RibbonOrientation != Orientation.Vertical)
             return;
 
         // AutoCAD 2021 docks this part to the right inside the vertical panel template.
@@ -163,9 +149,10 @@ internal sealed class RainmakerRibbon
         if (owner != null)
         {
             owner.LayoutUpdated -= CenterVerticalPanels;
-            if (tab != null) owner.Tabs.Remove(tab);
+            foreach(var tab in managedTabs.Values)owner.Tabs.Remove(tab);
         }
-        tab = null;
+        managedTabs.Clear();
+        revision = null;
         owner = null;
     }
 

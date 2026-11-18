@@ -11,7 +11,7 @@ const blockNumber=v=>Number.isFinite(v)?Number(v.toFixed(2)).toLocaleString('vi-
 const layerWeight=v=>v===-3?'Mặc định':v===-2?'Theo block':v===-1?'Theo layer':v==null?'Chưa có':`${blockNumber(v/100)} mm`;
 function libraryView(kind){
  if(kind==='skills')return libraryCardsView(kind);
- const hatchNav=`<div class="block-tabs hatch-tabs"><button class="button ${blockTab==='blocks'?'primary':''}" data-block-tab="blocks">Block</button><button class="button ${blockTab==='layers'?'primary':''}" data-block-tab="layers">Layer</button><button class="button ${blockTab==='hatches'?'primary':''}" data-block-tab="hatches">Hatch</button><button class="button ${blockTab==='texts'?'primary':''}" data-block-tab="texts">Text</button><button class="button ${blockTab==='dims'?'primary':''}" data-block-tab="dims">Dim</button></div>`;
+ const hatchNav=`<div class="block-tabs hatch-tabs"><button class="button" data-sync="open">Đồng bộ app ↔ DWG</button><button class="button ${blockTab==='blocks'?'primary':''}" data-block-tab="blocks">Block</button><button class="button ${blockTab==='layers'?'primary':''}" data-block-tab="layers">Layer</button><button class="button ${blockTab==='hatches'?'primary':''}" data-block-tab="hatches">Hatch</button><button class="button ${blockTab==='texts'?'primary':''}" data-block-tab="texts">Text</button><button class="button ${blockTab==='dims'?'primary':''}" data-block-tab="dims">Dim</button></div>`;
  if(blockTab==='hatches')return heading('Thư viện CAD','Hatch lấy từ DWG nguồn Quang Anh.')+hatchNav+hatchLibraryView();
  if(['texts','dims'].includes(blockTab))return heading('Text / Dim','Style catalog')+hatchNav+styleLibraryView(blockTab);
  const visible=state.templates;

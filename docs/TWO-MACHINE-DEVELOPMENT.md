@@ -21,6 +21,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/Setup-Local.ps1
 
 ## Thư viện trên hai máy
 
+### Cập nhật Library Manager và Ribbon
+
+Sau khi pull bản nâng cấp, đóng AutoCAD và chạy từ thư mục repo:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/Install-CadRibbonManager.ps1 -Build
+```
+
+Script build lại DLL trên máy hiện tại, cập nhật Host/MCP và đăng ký CAD Manager. Gõ `AICADRIBBON` để quản lý tab. Library được tự cài qua `AICADTOOLS` bằng DLL trong `artifacts/p0-p6-ribbon-manager/LibraryPackage`; giữ các DLL đi kèm cùng thư mục. Gói ZIP được tạo lại khi cài, không cần đưa binary lên Git. Xem [hướng dẫn Ribbon](CAD-RIBBON-MANAGER.md).
+
+Git không mang theo DWG nguồn, nhóm thư viện hoặc danh mục add-in đã cài. Đồng bộ kho riêng chứa `CAD/Originals/ISO_QuangAnh_ThuVien.dwg`, `Catalog`, `Tools` và các thư mục dữ liệu thư viện liên quan; kết nối đúng kho trên máy còn lại. Không chép `warehouse.local.json` hoặc token/session từ máy này sang máy kia.
+
 Để dùng phân tích ảnh/OCR, cài Python 3.12 64-bit và chạy `powershell -ExecutionPolicy Bypass -File tools/Setup-Ocr.ps1` trước khi build. Script tạo `.tools/ocr-python` và cài các phiên bản trong `tools/requirements-ocr-lock.txt`; commit tệp lock, không commit môi trường Python. Python 3.15 có thể cài song song. PDF scan còn cần Poppler (`pdftoppm.exe`) trong PATH.
 
 `content/` là định nghĩa mẫu được quản lý bằng Git. `packages/` là kho phiên bản do ứng dụng tạo; không dùng commit kho này để thay thế quản lý mã nguồn.

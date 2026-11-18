@@ -7,12 +7,16 @@ if (-not (Test-Path -LiteralPath $buildRoot -PathType Container)) {
     $buildRoot = Join-Path $appRoot 'artifacts'
 }
 $hostConfig = Join-Path $buildRoot 'p0-p6/install.json'
-$releases = foreach ($name in @('p0-p6-axis-addin', 'p0-p6-ribbon-center', 'p0-p6-rainmaker-toggle', 'p0-p6-rainmaker-tools', 'p0-p6-rainmaker', 'p0-p6-review-dark', 'p0-p6-addins', 'p0-p6')) {
+$releases = foreach ($name in @('p0-p6-ribbon-manager', 'p0-p6-library-manager', 'p0-p6-axis-addin', 'p0-p6-ribbon-center', 'p0-p6-rainmaker-toggle', 'p0-p6-rainmaker-tools', 'p0-p6-rainmaker', 'p0-p6-review-dark', 'p0-p6-addins', 'p0-p6')) {
     $release = Join-Path $buildRoot $name
     $dll = Join-Path $release 'AutoCAD/CAD.Bridge.AutoCAD.dll'
-    if (Test-Path -LiteralPath $dll -PathType Leaf) {
-        $version = [Diagnostics.FileVersionInfo]::GetVersionInfo($dll).FileVersion
-        [pscustomobject]@{ Dll = $dll; Version = [version]$version; Config = Join-Path $release 'install.json' }
+    $marker = Join-Path $release 'AutoCAD/plugin-version.txt'
+    if ((Test-Path -LiteralPath $dll -PathType Leaf) -and (Test-Path -LiteralPath $marker -PathType Leaf)) {
+        $version = $null
+        if (-not [version]::TryParse((Get-Content -LiteralPath $marker -Raw).Trim(), [ref]$version)) { continue }
+        $fileVersion = [version][Diagnostics.FileVersionInfo]::GetVersionInfo($dll).FileVersion
+        if ($fileVersion -ne $version) { throw "Plugin version marker does not match DLL: $dll" }
+        [pscustomobject]@{ Dll = $dll; Version = $version; Config = Join-Path $release 'install.json' }
     }
 }
 $plugin = $releases | Where-Object Version -ge ([version]'0.7.6') | Sort-Object Version -Descending | Select-Object -First 1

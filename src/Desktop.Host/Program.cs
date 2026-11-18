@@ -32,6 +32,7 @@ var builder=WebApplication.CreateBuilder(new WebApplicationOptions{Args=args,Con
 builder.Services.AddSingleton<BlockPreviewService>();
 builder.Services.AddSingleton<HatchLibraryService>();
 builder.Services.AddSingleton<StyleLibraryService>();
+builder.Services.AddSingleton<LibrarySyncService>();
 new LibraryCatalog(config.ContentRoot).EnsureTemplateGroups();
 new LibraryCatalog(config.ContentRoot).EnsureLayerGroups();
 new LibraryCatalog(config.ContentRoot).EnsureBlockGroups();
@@ -80,6 +81,16 @@ app.MapGet("/api/cad-tools",()=>{
 });
 app.MapGet("/api/cad-tools/mcp-config",()=>Out(CadToolMcpConfig.Create(config)));
 app.MapGet("/api/library-source/{hash}",(string hash)=>Out(CadSourceFile.Describe(config.ContentRoot,hash)));
+app.MapGet("/api/library-sync",(LibrarySyncService svc)=>Out(svc.State()));
+app.MapPost("/api/library-sync/item",async(HttpContext ctx,LibrarySyncService svc)=>Out(svc.Save(await Body(ctx))));
+app.MapPost("/api/library-sync/scan",async(HttpContext ctx,LibrarySyncService svc)=>Out(await svc.Scan(ctx.RequestAborted)));
+app.MapPost("/api/library-sync/apply",async(HttpContext ctx,LibrarySyncService svc)=>Out(await svc.Apply(await Body(ctx),ctx.RequestAborted)));
+app.MapPost("/api/library-sync/block-file",async(HttpContext ctx,LibrarySyncService svc)=>{
+ if(!ctx.Request.HasFormContentType)throw new CadException("INVALID_UPLOAD","Chọn DWG chứa block.");
+ var form=await ctx.Request.ReadFormAsync(ctx.RequestAborted);var file=form.Files.GetFile("file")??throw new CadException("INVALID_UPLOAD","Chọn DWG chứa block.");
+ if(file.Length<6||file.Length>20*1024*1024)throw new CadException("INVALID_UPLOAD","DWG tối đa 20 MB.");
+ await using var input=file.OpenReadStream();return Out(await svc.UploadBlock(file.FileName,input,ctx.RequestAborted));
+});
 app.MapGet("/api/style-library/{kind}",(string kind,StyleLibraryService svc)=>Out(svc.Read(kind)));
 app.MapPost("/api/style-library/import",async(StyleLibraryService svc,HttpContext ctx)=>Out(await svc.Import(ctx.RequestAborted)));
 app.MapPost("/api/style-library/{kind}/manage",async(string kind,StyleLibraryService svc,HttpContext ctx)=>Out(svc.Update(kind,await Body(ctx))));

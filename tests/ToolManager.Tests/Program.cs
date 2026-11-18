@@ -35,3 +35,23 @@ Check(File.Exists(catalog.Demand(enabledAxis))&&catalog.PathFor(enabledAxis).End
 catalog.Update(axis.Id,legacy.Revision+2,axis.Name,axis.Group,axis.Notes,true,axis.Commands,"delete");
 Check(catalog.Read().Items.Single(t=>t.Id==axis.Id).DeletedUtc.HasValue);
 Console.WriteLine("PASS: the Axis DLL replaces the legacy entry, preserves its settings and supports trash");
+
+string ribbonRoot=Path.Combine(root,"ribbon");Directory.CreateDirectory(ribbonRoot);var ribbons=new CadToolCatalog(ribbonRoot);
+Directory.CreateDirectory(ribbons.Root);Json.Atomic(Path.Combine(ribbons.Root,"catalog.json"),new JObject{["Revision"]=0,["Items"]=new JArray()});
+Check(ribbons.Read().Tabs.Single().Id==CadToolCatalog.DefaultTabId);
+for(int i=0;i<4;i++){var persisted=ribbons.Read();Json.Atomic(Path.Combine(ribbons.Root,"catalog.json"),persisted);Check(ribbons.Read().Tabs.Count==1);}
+var ribbonTool=ribbons.Import(source,0);ribbons.Update(ribbonTool.Id,1,"Thư viện","Mẫu","",true,new[]{"QATEST","QATEST2"});
+string libraryTab=ribbons.SaveTab(2,"","Thư viện",10);string architectureTab=ribbons.SaveTab(3,"","Kiến trúc",20);
+Reject(()=>ribbons.SaveTab(4,"","THƯ VIỆN",30),"RIBBON_TAB_EXISTS");
+ribbons.Update(ribbonTool.Id,4,"Thư viện","Mẫu","",true,new[]{"QATEST","QATEST2"},tabId:libraryTab);
+ribbons.PinCommands(ribbonTool.Id,5,new[]{new CadRibbonPin{Command="QATEST",Label="Nhận vào nhóm"},new CadRibbonPin{Command="QATEST2",Label="Xếp gọn"}});
+ribbons.SetRibbonPin(ribbonTool.Id,6,new(){Command="QATEST2",Label="Xếp gọn",TabId=architectureTab},true);
+ribbons.SaveTab(7,libraryTab,"Quản lý thư viện",15,false);Check(ribbons.Read().Tabs.Single(t=>t.Id==libraryTab).Name=="Quản lý thư viện");
+Check(!ribbons.Read().Tabs.Single(t=>t.Id==libraryTab).Enabled&&ribbons.Read().Items.Single().TabId==libraryTab);
+Reject(()=>ribbons.Update(ribbonTool.Id,8,"Thư viện","","",true,new[]{"QATEST"},tabId:"missing"),"RIBBON_TAB_MISSING");Check(ribbons.Read().Revision==8&&ribbons.Read().Items.Single().Commands.Count==2);
+var ribbonUpdate=ribbons.Import(source,8,ribbonTool.Id);Check(ribbonUpdate.TabId==libraryTab&&ribbonUpdate.RibbonPins.Count==2);
+ribbons.DeleteTab(9,architectureTab);Check(ribbons.Read().Items.Single().RibbonPins.Single(p=>p.Command=="QATEST2").TabId=="");
+ribbons.DeleteTab(10,libraryTab);Check(ribbons.Read().Items.Single().TabId==CadToolCatalog.DefaultTabId&&ribbons.Read().Items.Single().RibbonPins.Count==2&&File.Exists(ribbons.PathFor(ribbonUpdate)));
+Reject(()=>ribbons.DeleteTab(11,CadToolCatalog.DefaultTabId),"RIBBON_DEFAULT_TAB");Reject(()=>ribbons.DeleteTab(11,"ACAD.ID_TabHome"),"RIBBON_TAB_MISSING");
+Reject(()=>ribbons.SaveTab(10,"","Stale",0),"STALE_EDIT");
+Console.WriteLine("PASS: legacy tab migration, create/rename/hide, whole-addin routing, per-command override, preserved assignments on update, safe tab deletion and protected native/default tabs");
