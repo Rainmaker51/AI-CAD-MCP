@@ -52,6 +52,8 @@ try {
  [IO.Directory]::CreateDirectory((Join-Path $repo $data))|Out-Null
  $config|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $buildRoot "$Release/install.json") -Encoding utf8
  if($Test){
+  & $sdk run --project tests/NativeJson.Tests/NativeJson.Tests.csproj -c Release
+  if($LASTEXITCODE -ne 0){throw 'Native JSON context tests failed'}
   & $sdk run --project tests/ToolManager.Tests/ToolManager.Tests.csproj -c Release
   if($LASTEXITCODE -ne 0){throw 'Tool Manager tests failed'}
   & $sdk run --project tests/AICad.Tests/AICad.Tests.csproj -c Release

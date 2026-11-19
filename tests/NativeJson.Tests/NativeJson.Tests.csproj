@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0-windows</TargetFramework><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/CAD.Contracts/CAD.Contracts.csproj" />
+    <Compile Include="../../src/CAD.LibraryScanner/NativeJson.cs" Link="NativeJson.cs" />
+  </ItemGroup>
+</Project>

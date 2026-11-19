@@ -37,7 +37,7 @@ public static class LibraryFrames
     {
         if(owner.ExtensionDictionary.IsNull)return null;var dic=(DBDictionary)tx.GetObject(owner.ExtensionDictionary,OpenMode.ForRead);
         if(!dic.Contains(key))return null;var record=(Xrecord)tx.GetObject(dic.GetAt(key),OpenMode.ForRead);
-        return AICad.Contracts.Json.Read<JObject>(string.Concat(record.Data.AsArray().Select(v=>v.Value.ToString())));
+        return NativeJson.ReadObject(string.Concat(record.Data.AsArray().Select(v=>v.Value.ToString())));
     }
     static void Record(DBObject owner,Transaction tx,string key,object value)
     {

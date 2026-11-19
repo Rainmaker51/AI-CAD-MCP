@@ -85,6 +85,22 @@ public sealed class NativeTests
                 LibraryFrames.PackGroup(db,tx,LibraryFrames.Nodes(db,tx).Single(n=>n.Id==target.Id),items);
                 Check(samples.Skip(1).Select((e,i)=>e.GeometricExtents.MinPoint==otherBounds[i].MinPoint).All(v=>v),"Packing one group moved another group");
                 Check(items.All(i=>LibrarySyncNative.ReadDrawing(db,tx).Single(n=>n.Id==i.Id).GroupEditedInCad),"CAD group edits not marked for app import");
+                // Layout-only must never turn an erased sample's surviving definition into a new insertion.
+                var retained=samples.Skip(2).Select(e=>new{Entity=e,Min=e.GeometricExtents.MinPoint,Max=e.GeometricExtents.MaxPoint}).ToArray();var keptNewPosition=newSample.Position;
+                block.UpgradeOpen();block.Erase();line.UpgradeOpen();line.Erase();
+                int layerAnnotations=LibraryFrames.Model(db,tx).Count(e=>LibrarySyncNative.SampleMetadata(e,tx)?.Id==items[1].Id);
+                var layout=LibrarySyncNative.ArrangeExistingDrawing(db,tx,items,"blocks");
+                Check(layout.MissingSampleIds.SequenceEqual(new[]{items[0].Id})&&layout.ExistingSamples==1,"Layout did not report the erased block sample");
+                Check(!definition.IsErased&&!LibraryFrames.Model(db,tx).OfType<BlockReference>().Any(b=>b.BlockTableRecord==definition.ObjectId),"Layout recreated an erased block from its surviving definition");
+                Check(!LibraryFrames.Model(db,tx).Any(e=>LibrarySyncNative.SampleMetadata(e,tx)?.Id==items[0].Id),"Orphaned block annotation remained after layout");
+                Check(LibraryFrames.Model(db,tx).Count(e=>LibrarySyncNative.SampleMetadata(e,tx)?.Id==items[1].Id)==layerAnnotations&&line.IsErased,"Block-only layout changed another kind or restored its erased sample");
+                Check(retained.All(e=>e.Entity.GeometricExtents.MinPoint==e.Min&&e.Entity.GeometricExtents.MaxPoint==e.Max)&&newSample.Position==keptNewPosition,"Layout-only moved surviving samples");
+                LibrarySyncNative.ArrangeExistingDrawing(db,tx,items,"blocks");
+                Check(!LibraryFrames.Model(db,tx).OfType<BlockReference>().Any(b=>b.BlockTableRecord==definition.ObjectId),"Repeated layout restored a deleted sample");
+                AICad.Contracts.Json.Atomic(Path.Combine(root,"layout-test-items.json"),items);
+                foreach(var entity in LibraryFrames.Model(db,tx).Where(e=>LibrarySyncNative.SampleMetadata(e,tx)!=null).ToArray()){entity.UpgradeOpen();entity.Erase();}
+                var emptyLayout=LibrarySyncNative.ArrangeExistingDrawing(db,tx,items,"all");
+                Check(emptyLayout.MissingSampleIds.Count==items.Count&&emptyLayout.ExistingSamples==0&&!LibraryFrames.Model(db,tx).Any(e=>LibrarySyncNative.SampleMetadata(e,tx)!=null),"An empty gallery triggered sample regeneration");
                 tx.Commit();
             }
             db.SaveAs(Path.Combine(root,"library-manager-test.dwg"),DwgVersion.AC1032);
@@ -93,7 +109,7 @@ public sealed class NativeTests
                 saved.ReadDwgFile(Path.Combine(root,"library-manager-test.dwg"),FileOpenMode.OpenForReadAndAllShare,true,"");saved.CloseInput(true);HostApplicationServices.WorkingDatabase=saved;using var savedTx=saved.TransactionManager.StartOpenCloseTransaction();Check(LibraryFrames.Nodes(saved,savedTx).Count==16&&LibraryFrames.Nodes(saved,savedTx).All(n=>!n.Manual),"Group tree or legacy flag migration differs");
             }
             HostApplicationServices.WorkingDatabase=db;
-            AICad.Contracts.Json.Atomic(Path.Combine(root,"result.json"),new{passed=true,kinds=5,frames=16,editableSamples=true,attributesPreserved=true,resizeGrips=3,definitionUnchanged=true,legacyFlagRetired=true,syncPreservesPositions=true,newSamplesAppend=true,retryStable=true,explicitPacking=true,cadGroupsSyncable=true});
+            AICad.Contracts.Json.Atomic(Path.Combine(root,"result.json"),new{passed=true,kinds=5,frames=16,editableSamples=true,attributesPreserved=true,resizeGrips=3,definitionUnchanged=true,legacyFlagRetired=true,syncPreservesPositions=true,newSamplesAppend=true,retryStable=true,explicitPacking=true,cadGroupsSyncable=true,layoutNeverRestoresErasedSamples=true,layoutScopePreserved=true,emptyLayoutNeverBootstraps=true});
         }
         catch(System.Exception error){AICad.Contracts.Json.Atomic(Path.Combine(root,"result.json"),new{passed=false,error=error.ToString()});}
         finally{HostApplicationServices.WorkingDatabase=previous;}

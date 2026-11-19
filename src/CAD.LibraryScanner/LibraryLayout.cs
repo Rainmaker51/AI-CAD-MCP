@@ -15,7 +15,7 @@ public sealed class LibraryLayout {
  public void Run(){
   string job=Environment.GetEnvironmentVariable("AICAD_LIBRARY_JOB")??"";if(!Path.IsPathRooted(job)||!File.Exists(Path.Combine(job,".aicad-library-job")))return;
   try{
-   var plan=JsonUtil.Read<JObject>(File.ReadAllText(Path.Combine(job,"layout.json")));string output=Path.Combine(job,"ISO_QuangAnh_ThuVien.dwg");if(File.Exists(output))throw new InvalidOperationException("Output already exists.");
+   var plan=NativeJson.ReadObject(File.ReadAllText(Path.Combine(job,"layout.json")));string output=Path.Combine(job,"ISO_QuangAnh_ThuVien.dwg");if(File.Exists(output))throw new InvalidOperationException("Output already exists.");
    using var db=new Database(false,true);db.ReadDwgFile(Path.Combine(job,"source.dwg"),FileOpenMode.OpenForReadAndAllShare,true,"");db.CloseInput(true);var previous=HostApplicationServices.WorkingDatabase;HostApplicationServices.WorkingDatabase=db;
    var report=new JObject();var failures=new JArray();int managedCount=0,otherCount=0,hatchCount=0,layerCount=0,textCount=0,dimCount=0;
    try{

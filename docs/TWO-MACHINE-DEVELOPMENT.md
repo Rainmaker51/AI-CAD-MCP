@@ -23,6 +23,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/Setup-Local.ps1
 
 ### Cập nhật Library Manager và Ribbon
 
+Manager 0.8.0 dùng catalog `StorageVersion=2`. Hai máy phải cùng nâng cấp Manager/Host/MCP; không để client cũ ghi vào kho mới. Một máy chuyển cấu trúc bằng `-MigrateInstalled`, máy kia chỉ cài phần mềm và chờ đồng bộ xong. Mỗi add-in có đúng một gói trong `_Installed`; lịch sử ở `_Development`. Kiểm tra SHA-256 không thay thế việc chờ Drive/OneDrive đồng bộ bản mới nhất. Xem [quy trình đồng bộ chi tiết](ADDIN-DEVELOPMENT-WORKFLOW.md#7-chuyển-máy-và-khôi-phục).
+
 Sau khi pull bản nâng cấp, đóng AutoCAD và chạy từ thư mục repo:
 
 ```powershell

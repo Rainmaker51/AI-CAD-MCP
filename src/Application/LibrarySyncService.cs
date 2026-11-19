@@ -345,6 +345,7 @@ public sealed partial class LibrarySyncService(InstallConfig config)
                 return Commit(job, state, desired, native, new HashSet<string>(), Source, removed, false);
             }
             var output = await Native(job, desired, writes, ct, layoutKind);
+            int missingSamples=layoutKind==""?0:Json.Read<JObject>(File.ReadAllText(Path.Combine(job,"sync-result.json")))["layout"]?["MissingSampleIds"]?.Count()??0;
             string synced = Path.Combine(job, "synced.dwg");
             if (!File.Exists(synced)) throw new CadException("SYNC_NATIVE", "Chưa có DWG kết quả.");
             foreach (var item in desired)
@@ -359,12 +360,12 @@ public sealed partial class LibrarySyncService(InstallConfig config)
             }
             if (output.Any(i => i.Kind == "layers" && desired.Any(a => a.Id == i.Id) && i.Name == "")) throw new CadException("SYNC_VERIFY", "Layer không có tên.");
             DemandCurrent(); ct.ThrowIfCancellationRequested();
-            return Commit(job, state, desired, output, accepted, synced, removed);
+            return Commit(job, state, desired, output, accepted, synced, removed,missingSamples:missingSamples);
         }
         finally { gate.Release(); }
     }
 
-    object Commit(string job, LibrarySyncState state, List<LibrarySyncItem> desired, List<LibrarySyncItem> native, HashSet<string> accepted, string synced, List<LibrarySyncItem> removed, bool updateSource = true)
+    object Commit(string job, LibrarySyncState state, List<LibrarySyncItem> desired, List<LibrarySyncItem> native, HashSet<string> accepted, string synced, List<LibrarySyncItem> removed, bool updateSource = true,int missingSamples=0)
     {
         string hash = Json.FileHash(synced), backup = Path.Combine(Warehouse, "CAD", "Backups", "sync-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(backup);
@@ -409,7 +410,7 @@ public sealed partial class LibrarySyncService(InstallConfig config)
             Json.Atomic(StateFile, state);
             Json.Atomic(journal, new { files = saved, status = "COMMITTED" });
             File.Delete(journal);
-            var result = new { status = "SYNCED", source = Source, sourceHash = hash, revision = state.Revision, items = desired.Count, samples = updateSource ? desired.Count : 0, removed = removed.Count, sourceUpdated = updateSource, backup };
+            var result = new { status = "SYNCED", source = Source, sourceHash = hash, revision = state.Revision, items = desired.Count, samples = updateSource ? desired.Count : 0, removed = removed.Count, missingSamples, sourceUpdated = updateSource, backup };
             Json.Atomic(Path.Combine(job, "committed.json"), result);
             return result;
         }

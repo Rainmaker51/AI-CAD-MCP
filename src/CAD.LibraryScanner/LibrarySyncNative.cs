@@ -15,6 +15,11 @@ namespace AICad.LibraryScanner;
 
 public sealed class LibrarySyncNative
 {
+    public sealed class LayoutReport
+    {
+        public int ExistingSamples { get; set; }
+        public List<string> MissingSampleIds { get; set; } = new();
+    }
     const string ResourceKey = "AICAD_SYNC_RESOURCE";
     const string SampleKey = "AICAD_SYNC_SAMPLE";
     static string Root => Environment.GetEnvironmentVariable("AICAD_LIBRARY_JOB") ?? "";
@@ -26,13 +31,14 @@ public sealed class LibrarySyncNative
         var previous = HostApplicationServices.WorkingDatabase;
         try
         {
-            var request = JsonUtil.Read<JObject>(File.ReadAllText(Path.Combine(Root, "sync-request.json")));
+            var request = NativeJson.ReadObject(File.ReadAllText(Path.Combine(Root, "sync-request.json")));
             using var db = new Database(false, true);
             db.ReadDwgFile(Path.Combine(Root, "source.dwg"), FileOpenMode.OpenForReadAndAllShare, true, "");
             db.CloseInput(true);
             HostApplicationServices.WorkingDatabase = db;
             if (db.Insunits != UnitsValue.Millimeters) throw new InvalidOperationException("DWG thư viện phải có đơn vị mm.");
             var managed = request["managed"]?.ToObject<List<LibrarySyncItem>>() ?? new();
+            LayoutReport? layoutReport=null;
             if (request.Value<bool>("apply"))
             {
                 var writes = request["writes"]!.ToObject<List<LibrarySyncItem>>()!;
@@ -64,15 +70,15 @@ public sealed class LibrarySyncNative
                     Tag(resource, edit, ResourceKey, found);
                     selected.Add(found);
                 }
-                if(layoutKind!="")request["keepSamples"]=true;
-                Gallery(db, edit, selected, request);
+                if(layoutKind!="")layoutReport=ArrangeExistingDrawing(db,edit,selected,layoutKind);
+                else Gallery(db, edit, selected, request);
                 edit.Commit();
                 db.SaveAs(Path.Combine(Root, "synced.dwg"), DwgVersion.AC1032);
             }
             using var read = db.TransactionManager.StartOpenCloseTransaction();
             var items = Read(db, read, managed);
             if (request.Value<bool>("apply")) HatchPreviews(db, read, items.Where(i => i.Kind == "hatches" && managed.Any(m => m.Id == i.Id)));
-            JsonUtil.Atomic(Path.Combine(Root, "sync-result.json"), new { items, sourceHash = JsonUtil.FileHash(Path.Combine(Root, request.Value<bool>("apply") ? "synced.dwg" : "source.dwg")) });
+            JsonUtil.Atomic(Path.Combine(Root, "sync-result.json"), new { items, layout=layoutReport, sourceHash = JsonUtil.FileHash(Path.Combine(Root, request.Value<bool>("apply") ? "synced.dwg" : "source.dwg")) });
         }
         catch (System.Exception error)
         {
@@ -434,6 +440,44 @@ public sealed class LibrarySyncNative
         }
     }
     public static void ArrangeDrawing(Database db, Transaction tx, List<LibrarySyncItem> items) => Gallery(db,tx,items,new JObject{["keepSamples"]=true});
+
+    /// <summary>Regroup existing samples only. A surviving definition is not permission to recreate an erased insertion.</summary>
+    public static LayoutReport ArrangeExistingDrawing(Database db,Transaction tx,List<LibrarySyncItem> items,string kind)
+    {
+        if(kind!="all"&&!LibrarySyncRules.Kinds.Contains(kind))throw new CadException("SYNC_LAYOUT","Loại bố trí không hợp lệ.");
+        var report=new LayoutReport();
+        foreach(var item in items.Where(i=>kind=="all"||i.Kind==kind))
+        {
+            var glyph=LibraryFrames.Model(db,tx).Where(e=>SampleMetadata(e,tx)?.Id==item.Id).ToArray();
+            var sample=glyph.FirstOrDefault(e=>item.Kind=="blocks"&&e is BlockReference||item.Kind=="layers"&&e is Line||
+                item.Kind=="hatches"&&e is Hatch||item.Kind=="texts"&&e is DBText||item.Kind=="dims"&&e is Dimension);
+            if(sample==null)
+            {
+                report.MissingSampleIds.Add(item.Id);
+                // Remove only our orphaned annotation, never restore the missing sample or erase its definition.
+                foreach(var annotation in glyph.Where(e=>e is MText||e is Polyline)){annotation.UpgradeOpen();annotation.Erase();}
+                continue;
+            }
+            report.ExistingSamples++;
+            LibraryFrames.AddCell(db,tx,item,sample);
+            foreach(var label in LibraryFrames.Model(db,tx).OfType<MText>().Where(e=>SampleMetadata(e,tx)?.Id==item.Id))
+            {
+                var lines=label.Text.Replace("\r","").Split('\n').ToList();
+                if(lines.Count>0)lines[0]=item.Name;
+                foreach(var field in new[]{new{Key="Nhóm | ",Value=item.Group},new{Key="Công dụng | ",Value=item.Purpose},new{Key="Ghi chú | ",Value=item.Notes}})
+                {
+                    int index=lines.FindIndex(line=>line.StartsWith(field.Key,StringComparison.Ordinal));
+                    if(index>=0)lines[index]=field.Key+field.Value;else lines.Add(field.Key+field.Value);
+                }
+                label.UpgradeOpen();label.Contents=string.Join("\\P",lines.Select(Safe));
+            }
+        }
+        // Keep unrelated kinds untouched in the frame inputs. Missing samples in the selected kind are not counted.
+        var missing=new HashSet<string>(report.MissingSampleIds);
+        var displayed=items.Where(i=>!missing.Contains(i.Id)).ToList();
+        LibraryFrames.Clear(db,tx);LibraryFrames.Build(db,tx,displayed);
+        return report;
+    }
 
     static void Gallery(Database db, Transaction tx, List<LibrarySyncItem> items, JObject request)
     {

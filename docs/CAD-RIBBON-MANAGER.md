@@ -1,5 +1,7 @@
 # CAD Manager — quản lý tab Ribbon
 
+Từ Manager **0.8.0**, gói được cài trong `Tools/dotnet/_Installed/<TênAddin>/<version>-<fingerprint>`, một gói cho mỗi add-in. Manager giữ lịch sử trong `_Development`, tự kiểm tra gói mới rồi thay bản cài và dọn bản cũ. Hai máy phải cùng cập nhật Manager/Host/MCP trước khi dùng catalog mới. Xem [quy trình add-in và đồng bộ hai máy](ADDIN-DEVELOPMENT-WORKFLOW.md#7-chuyển-máy-và-khôi-phục).
+
 ## Cài bản nâng cấp
 
 ```powershell

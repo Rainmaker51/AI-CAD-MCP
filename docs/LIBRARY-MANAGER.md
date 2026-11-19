@@ -1,5 +1,11 @@
 # Rainmaker Library — AutoCAD 2021
 
+## Bản sửa 1.3.1 — mở nhóm thư viện trên máy khác
+
+Sửa lỗi `Cannot create and populate list type Newtonsoft.Json.Linq.JToken. Path 'nodes'` khi các add-in nạp Json.NET trong những ngữ cảnh DLL khác nhau. JSON cây nhóm được đọc trực tiếp trong DLL sử dụng nó, giữ kiểm tra kích thước, độ sâu và khóa trùng. Không cần xóa nhóm hay khởi tạo lại DWG.
+
+Đóng AutoCAD, thay toàn bộ gói DLL bằng bản mới rồi mở lại. Với Library đã nhập vào CAD Manager, chọn **Cập nhật file** cho đúng mục Library, chọn `Rainmaker.Library.dll` 1.3.1 cùng các DLL đi kèm và nạp lại. Cập nhật file giữ tab, ghim lệnh và hồ sơ add-in; không sửa dữ liệu thư viện trong DWG.
+
 DLL chính: `Rainmaker.Library.dll`. Gói cần giữ cùng `CAD.LibraryScanner.dll`, `CAD.Contracts.dll` và `Newtonsoft.Json.dll`; không chỉ chép riêng DLL chính.
 
 ## Cài trên máy hiện tại hoặc máy khác

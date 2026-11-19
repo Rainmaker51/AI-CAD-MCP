@@ -24,6 +24,10 @@ Nhóm phân loại do app quản lý. Chỉ đổi nhóm không khiến tài ngu
 
 ## Cập nhật bố trí theo nhóm
 
+**Cập nhật bố trí chỉ xử lý các mẫu hiện có trong CAD**, theo đúng loại đang chọn. Xóa một block mẫu trên Model nhưng giữ định nghĩa block trong DWG không cho phép nút này tự chèn lại block. Các mẫu thiếu được bỏ qua và thông báo số lượng; kể cả khi xóa hết mẫu cũng không tự dựng lại thư viện. Khung/nhãn quản lý mồ côi của mẫu đã xóa được dọn, định nghĩa tài nguyên vẫn giữ nguyên. Muốn chèn lại mẫu, dùng thao tác thêm/nhận mẫu hoặc chiều cập nhật App → CAD một cách chủ động.
+
+Định nghĩa block và block mẫu là hai đối tượng khác nhau: chỉ xóa mẫu có thể vẫn khiến định nghĩa xuất hiện trong bảng so sánh. Việc này không còn làm nút bố trí khôi phục mẫu đã xóa.
+
 Sau khi phân nhóm, mở bảng đồng bộ, chọn loại thư viện rồi nhấn **Cập nhật bố trí CAD**. App đọc DWG hiện tại, đưa mẫu của loại đang chọn vào các nhóm theo app và dựng lại khu trình bày. Các thay đổi dữ liệu chưa duyệt vẫn được giữ để đối chiếu; thao tác bố trí không ghi đè thông số từ bản nháp app lên CAD.
 
 Khu quản lý có năm phần từ trái qua phải: **01 Block, 02 Layer, 03 Hatch, 04 Text, 05 Dim**. Mỗi phần có các nhóm riêng, nhãn ghi đường dẫn nhóm cha/con. Các ô mẫu xếp theo hàng dựa trên kích thước thực và chữ thuộc tính, tự xuống hàng; mẫu lớn làm vùng nhóm và khoảng cách khu giãn theo. Khi thêm, bớt hoặc đổi nhóm, lần cập nhật bố trí tiếp theo sẽ tính lại các hàng và phạm vi. Khu này đặt bên phải nội dung cũ để tránh chồng lên vùng lưu đối chiếu. Named view `SYNC_00_ALL` xem tổng quan; `SYNC_01_BLOCK` đến `SYNC_05_DIM` mở từng phần; các view `SYNC_<kind>_<hash>` mở từng nhóm.

@@ -26,8 +26,8 @@ public sealed class CadRibbonTab {
  public string Id{get;set;}="";public string Name{get;set;}="";public int Order{get;set;}public bool Enabled{get;set;}=true;
  public override string ToString()=>Name;
 }
-public sealed class CadToolIndex {public int Revision{get;set;}public List<CadToolEntry> Items{get;set;}=new();public List<CadRibbonTab> Tabs{get;set;}=new();}
-public sealed class CadToolCatalog {
+public sealed class CadToolIndex {public int Revision{get;set;}public int StorageVersion{get;set;}public List<CadToolEntry> Items{get;set;}=new();public List<CadRibbonTab> Tabs{get;set;}=new();}
+public sealed partial class CadToolCatalog {
  public const string DefaultTabId="rainmaker";
  public const string AxisToolId="rainmaker-axis";
  public const string AxisCommand="RAINMAKERAXIS";
@@ -35,7 +35,7 @@ public sealed class CadToolCatalog {
   !string.IsNullOrWhiteSpace(pin.Group)?pin.Group.Trim():!string.IsNullOrWhiteSpace(tool.Group)?tool.Group.Trim():"Công cụ";
  readonly string root;public string Root=>root;string Index=>Path.Combine(root,"catalog.json");
  public CadToolCatalog(string appRoot){root=Path.Combine(WarehousePaths.Resolve(appRoot),"Tools");}
- public CadToolIndex Read(){var index=File.Exists(Index)?Json.Read<CadToolIndex>(File.ReadAllText(Index)):new();index.Tabs=(index.Tabs??new()).GroupBy(t=>t.Id,StringComparer.OrdinalIgnoreCase).Select(g=>g.First()).ToList();if(!index.Tabs.Any(t=>t.Id==DefaultTabId))index.Tabs.Insert(0,new(){Id=DefaultTabId,Name="Rainmaker"});return index;}
+ public CadToolIndex Read(){var index=File.Exists(Index)?Json.Read<CadToolIndex>(File.ReadAllText(Index)):new();if(index.StorageVersion>2)throw new CadException("TOOL_STORAGE_VERSION","Cập nhật CAD Manager trên máy này để đọc kho mới.");index.Tabs=(index.Tabs??new()).GroupBy(t=>t.Id,StringComparer.OrdinalIgnoreCase).Select(g=>g.First()).ToList();if(!index.Tabs.Any(t=>t.Id==DefaultTabId))index.Tabs.Insert(0,new(){Id=DefaultTabId,Name="Rainmaker"});return index;}
  static bool IsLegacyAxis(CadToolEntry tool)=>tool.Id==AxisToolId&&tool.Kind=="builtin";
  static CadToolEntry DefaultAxis()=>new(){
   Id=AxisToolId,Kind="builtin",Name="Tạo trục",Group="Trục & cao độ",
@@ -45,28 +45,10 @@ public sealed class CadToolCatalog {
  static CadToolEntry Editable(CadToolIndex index,string id)=>index.Items.SingleOrDefault(t=>t.Id==id)
   ??throw new CadException("TOOL_MISSING","Công cụ không còn trong danh mục.");
  public string PathFor(CadToolEntry item){string full=Path.GetFullPath(Path.Combine(root,item.RelativePath));if(!full.StartsWith(Path.GetFullPath(root)+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)||Path.IsPathRooted(item.RelativePath))throw new CadException("TOOL_PATH","Đường dẫn công cụ không nằm trong kho.");return full;}
- public string Demand(CadToolEntry item){RequireAddIn(item);if(!item.Enabled||item.DeletedUtc.HasValue)throw new CadException("TOOL_DISABLED","Công cụ đang tắt hoặc nằm trong thùng rác.");string file=PathFor(item);if(!File.Exists(file)||Json.FileHash(file)!=item.FileHash)throw new CadException("TOOL_CHANGED","File công cụ đã thay đổi. Nhập cập nhật rồi nạp lại.");string folder=Path.GetDirectoryName(file)!;if(PackageHash(Directory.GetFiles(folder))!=item.PackageHash)throw new CadException("TOOL_CHANGED","Gói công cụ hoặc dependency đã thay đổi. Nhập cập nhật rồi nạp lại.");return file;}
+ public string Demand(CadToolEntry item){RequireAddIn(item);if(!item.Enabled||item.DeletedUtc.HasValue)throw new CadException("TOOL_DISABLED","Công cụ đang tắt hoặc nằm trong thùng rác.");var index=Read();var selected=index.Items.SingleOrDefault(t=>t.Id==item.Id);if(selected==null||selected.PackageHash!=item.PackageHash||selected.RelativePath!=item.RelativePath)throw new CadException("TOOL_CHANGED","Danh mục đã chọn bản khác. Làm mới Manager.");if(!selected.Enabled||selected.DeletedUtc.HasValue)throw new CadException("TOOL_DISABLED","Công cụ đang tắt hoặc nằm trong thùng rác.");foreach(var tool in index.Items.Where(t=>t.Kind=="dotnet"&&t.Enabled&&!t.DeletedUtc.HasValue))VerifyPackage(tool);return PathFor(item);}
  static void RequireAddIn(CadToolEntry item){if(item.Kind!="dotnet")throw new CadException("TOOL_TYPE","CAD Tool Manager quản lý add-in .NET Framework 4.8.");}
  static string PackageHash(IEnumerable<string> files)=>Json.Hash(files.OrderBy(Path.GetFileName,StringComparer.OrdinalIgnoreCase).Select(p=>new{name=Path.GetFileName(p),hash=Json.FileHash(p)}).ToList());
- public CadToolEntry Import(string source,int revision,string? replaceId=null){
-  source=Path.GetFullPath(source);
-  if(!string.Equals(Path.GetExtension(source),".dll",StringComparison.OrdinalIgnoreCase))throw new CadException("TOOL_TYPE","Chọn DLL .NET Framework 4.8.");
-  if(!File.Exists(source))throw new CadException("TOOL_MISSING","Không tìm thấy file công cụ.");
-  string stem=Path.GetFileNameWithoutExtension(source);if(Reserved(stem))throw new CadException("TOOL_RESERVED","Không nhập DLL của AutoCAD hoặc của AI CAD làm công cụ.");
-  var files=Directory.GetFiles(Path.GetDirectoryName(source)!).Where(p=>new[]{".dll",".pdb"}.Contains(Path.GetExtension(p).ToLowerInvariant())&&!Reserved(Path.GetFileNameWithoutExtension(p))).ToArray();
-  if(files.Length>200||files.Sum(p=>new FileInfo(p).Length)>100L*1024*1024)throw new CadException("TOOL_SIZE","Gói công cụ tối đa 100 MB / 200 file. Đặt DLL và dependency trong thư mục riêng.");
-  CadToolEntry? imported=null;Change(revision,index=>{
-   bool axisPackage=string.Equals(stem,"Rainmaker.Axis",StringComparison.OrdinalIgnoreCase);
-   var old=replaceId==null?(axisPackage?index.Items.SingleOrDefault(IsLegacyAxis):null):
-    index.Items.SingleOrDefault(t=>t.Id==replaceId)??(replaceId==AxisToolId&&axisPackage?DefaultAxis():
-     throw new CadException("TOOL_MISSING","Công cụ không còn trong danh mục."));
-   if(old!=null&&!(axisPackage&&IsLegacyAxis(old)))RequireAddIn(old);
-   string id=old?.Id??Guid.NewGuid().ToString("N"),package=PackageHash(files);string relative=Path.Combine("dotnet",id,package,Path.GetFileName(source)),destination=Path.Combine(root,relative);Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-   foreach(string file in files){string target=Path.Combine(Path.GetDirectoryName(destination)!,Path.GetFileName(file));if(!File.Exists(target))File.Copy(file,target,false);if(Json.FileHash(file)!=Json.FileHash(target))throw new CadException("TOOL_CHANGED","File thay đổi trong lúc nhập.");}
-   imported=new CadToolEntry{Id=id,Name=old?.Name??stem,Kind="dotnet",RelativePath=relative,FileHash=Json.FileHash(destination),PackageHash=package,Group=old?.Group??"",Notes=old?.Notes??"",Enabled=old?.Enabled??true,Commands=old?.Commands??new(),RibbonPins=old?.RibbonPins??new(),TabId=old?.TabId??DefaultTabId,UpdatedUtc=DateTime.UtcNow};
-   if(old!=null)index.Items.Remove(old);index.Items.Add(imported);
-  });return imported!;
- }
+ public CadToolEntry Import(string source,int revision,string? replaceId=null)=>ImportInstalled(source,revision,replaceId);
  static bool Reserved(string name)=>new[]{"acmgd","acdbmgd","accoremgd","CAD.Bridge.AutoCAD","CAD.Contracts","CAD.Geometry"}.Contains(name,StringComparer.OrdinalIgnoreCase)||name.StartsWith("System.",StringComparison.OrdinalIgnoreCase);
  public void Update(string id,int revision,string name,string group,string notes,bool enabled,IEnumerable<string> commands,string action="save",string? tabId=null)=>Change(revision,index=>{
   var item=Editable(index,id);
@@ -117,6 +99,6 @@ public sealed class CadToolCatalog {
   var tool=Editable(index,id);var pins=commands.ToList();if(pins.Count>200||pins.Select(p=>p.Command).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=pins.Count)throw new CadException("TOOL_RIBBON","Danh sách ghim tối đa 200 lệnh riêng biệt.");
   foreach(var pin in pins){ValidatePin(index,tool,pin,true);if(!tool.RibbonPins.Any(p=>string.Equals(p.Command,pin.Command,StringComparison.OrdinalIgnoreCase)))tool.RibbonPins.Add(pin);}
  });
- void Change(int revision,Action<CadToolIndex> action){Directory.CreateDirectory(root);using var mutex=new Mutex(false,"Local\\AICadTools_"+Json.Hash(root));bool held=false;try{try{held=mutex.WaitOne(2000);}catch(AbandonedMutexException){held=true;}if(!held)throw new CadException("TOOL_BUSY","Danh mục công cụ đang được cập nhật.");var index=Read();if(index.Revision!=revision)throw new CadException("STALE_EDIT","Danh mục đã đổi. Làm mới rồi thử lại.");action(index);index.Revision++;Json.Atomic(Index,index);}finally{if(held)mutex.ReleaseMutex();}}
+ void Change(int revision,Action<CadToolIndex> action,Action<CadToolIndex>? committed=null){Directory.CreateDirectory(root);using var mutex=new Mutex(false,"Local\\AICadTools_"+Json.Hash(root));bool held=false;try{try{held=mutex.WaitOne(2000);}catch(AbandonedMutexException){held=true;}if(!held)throw new CadException("TOOL_BUSY","Danh mục công cụ đang được cập nhật.");using var sharedLock=AcquireCatalogLock();var index=Read();if(index.Revision!=revision)throw new CadException("STALE_EDIT","Danh mục đã đổi. Làm mới rồi thử lại.");action(index);index.Revision++;Json.Atomic(Index,index);committed?.Invoke(index);}finally{if(held)mutex.ReleaseMutex();}}
  public static string CommandName(string value){if(!Regex.IsMatch(value,@"^[\p{L}\p{N}_$.-]{1,100}$"))throw new CadException("TOOL_COMMAND","Tên lệnh chỉ gồm chữ, số, _, $, ., -; không nhập biểu thức hoặc macro.");return value;}
 }

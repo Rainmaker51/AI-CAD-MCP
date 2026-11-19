@@ -34,7 +34,7 @@ function syncRender() {
         }).join('')}</tbody></table></div>`:`<p class="sync-group-empty hint">${s.review?(key==='pending'?'Không có mục cần đồng bộ trong tab này.':'Chưa có mục đã khớp trong tab này.'):'Nhấn Đọc và so sánh DWG để xác nhận trạng thái.'}</p>`}</details>`;
     }
     syncDialog(`<header class="sync-header"><div><h2>Đồng bộ thư viện CAD</h2><p class="hint sync-source">${esc(s.source)}</p></div><button class="button" data-sync="close" ${s.busy?'disabled':''}>Đóng</button></header>
-        <div class="sync-actions"><button class="button primary" data-sync="scan" ${s.busy?'disabled':''}>${s.busy?'Đang xử lý…':'Đọc và so sánh DWG'}</button><button class="button" data-sync="new" ${s.busy?'disabled':''}>Thêm ${syncKindNames[s.kind]}</button><button class="button" data-sync="arrange" ${s.busy?'disabled':''}>Cập nhật bố trí CAD · ${syncKindNames[s.kind]}</button><span class="hint" role="status">${s.review?'Chọn chiều cập nhật cho từng mục, sau đó áp dụng.':'Lưu DWG thư viện trước khi đọc. Bản nháp trong app được ghi vào CAD khi áp dụng.'}</span></div>
+        <div class="sync-actions"><button class="button primary" data-sync="scan" ${s.busy?'disabled':''}>${s.busy?'Đang xử lý…':'Đọc và so sánh DWG'}</button><button class="button" data-sync="new" ${s.busy?'disabled':''}>Thêm ${syncKindNames[s.kind]}</button><button class="button" data-sync="arrange" title="Chỉ bố trí mẫu hiện có trong CAD; không tự khôi phục mẫu đã xóa." ${s.busy?'disabled':''}>Cập nhật bố trí CAD · ${syncKindNames[s.kind]}</button><span class="hint" role="status">${s.review?'Chọn chiều cập nhật cho từng mục, sau đó áp dụng.':'Lưu DWG thư viện trước khi đọc. Bản nháp trong app được ghi vào CAD khi áp dụng.'}</span></div>
         <nav class="block-tabs" aria-label="Loại tài nguyên">${Object.entries(syncKindNames).map(([kind,name])=>`<button class="button ${s.kind===kind?'primary':''}" data-sync-kind="${kind}" ${s.busy?'disabled':''}>${name}</button>`).join('')}</nav>
         <p class="sync-error" role="alert">${esc(s.error)}</p>
         <p class="hint" role="status">${syncKindNames[s.kind]}: ${s.review?`${pending.length} chưa đồng bộ · ${matched.length} đã đồng bộ`:'Chưa đối chiếu DWG — đọc và so sánh để phân nhóm chính xác.'}</p>
@@ -98,8 +98,8 @@ document.addEventListener('click',async event=>{
             librarySync.busy=true;librarySync.error='';syncRender();
             let arranged=false;
             try{
-                await api('library-sync/apply',{id:librarySync.review,layoutKind:kind,choices:{}});
-                blockLibrary=null;await refresh(false);toast(`Đã bố trí mẫu ${syncKindNames[kind]} theo nhóm app trong 5 khu thư viện CAD.`);arranged=true;
+                const result=await api('library-sync/apply',{id:librarySync.review,layoutKind:kind,choices:{}});
+                blockLibrary=null;await refresh(false);toast(`Đã cập nhật bố trí ${syncKindNames[kind]} cho các mẫu còn trong CAD.${result.missingSamples?` Bỏ qua ${result.missingSamples} mẫu không còn trong bố trí CAD; không tự tạo lại.`:''}`);arranged=true;
             }catch(error){librarySync.error=error.message;}
             finally{librarySync.busy=false;if(arranged)await syncScan();else syncRender();}
             break;
