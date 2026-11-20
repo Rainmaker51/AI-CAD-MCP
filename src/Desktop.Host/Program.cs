@@ -33,6 +33,7 @@ builder.Services.AddSingleton<BlockPreviewService>();
 builder.Services.AddSingleton<HatchLibraryService>();
 builder.Services.AddSingleton<StyleLibraryService>();
 builder.Services.AddSingleton<LibrarySyncService>();
+builder.Services.AddSingleton<LibraryIdentifierService>();
 new LibraryCatalog(config.ContentRoot).EnsureTemplateGroups();
 new LibraryCatalog(config.ContentRoot).EnsureLayerGroups();
 new LibraryCatalog(config.ContentRoot).EnsureBlockGroups();
@@ -64,6 +65,7 @@ app.MapPost("/api/drafting/catalog",async(HttpContext ctx,DraftingLibraryService
 app.MapPost("/api/drafting/source-sync",async(HttpContext ctx,DraftingLibraryService svc)=>Out(svc.SyncSource(Text(await Body(ctx),"id"))));
 app.MapPost("/api/drafting/skill",async(HttpContext ctx,DraftingLibraryService svc)=>Out(svc.Wizard(await Body(ctx))));
 app.MapGet("/api/library-management/{kind}",(string kind,LibraryManagementService svc)=>Out(svc.State(kind)));
+app.MapPost("/api/library-identifiers",(LibraryIdentifierService svc)=>Out(svc.Ensure()));
 app.MapGet("/api/layer-management/{templateId}",(string templateId,LibraryManagementService svc)=>Out(svc.LayerState(templateId)));
 app.MapPost("/api/layer-management/assign",async(HttpContext ctx,LibraryManagementService svc)=>Out(svc.AssignLayers(await Body(ctx))));
 app.MapGet("/api/block-management/{templateId}",(string templateId,LibraryManagementService svc)=>Out(svc.BlockState(templateId)));

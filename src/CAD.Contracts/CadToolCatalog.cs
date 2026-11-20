@@ -95,8 +95,10 @@ public sealed partial class CadToolCatalog {
   tool.RibbonPins.RemoveAll(item=>string.Equals(item.Command,pin.Command,StringComparison.OrdinalIgnoreCase));
   if(pinned)tool.RibbonPins.Add(pin);
  });
- public void PinCommands(string id,int revision,IEnumerable<CadRibbonPin> commands)=>Change(revision,index=>{
-  var tool=Editable(index,id);var pins=commands.ToList();if(pins.Count>200||pins.Select(p=>p.Command).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=pins.Count)throw new CadException("TOOL_RIBBON","Danh sách ghim tối đa 200 lệnh riêng biệt.");
+ public void PinCommands(string id,int revision,IEnumerable<CadRibbonPin> commands)=>PinCommands(id,revision,commands,null);
+ public void PinCommands(string id,int revision,IEnumerable<CadRibbonPin> commands,string? tabId)=>Change(revision,index=>{
+  var tool=Editable(index,id);if(tabId!=null){DemandTab(index,tabId);tool.TabId=tabId;}
+  var pins=commands.ToList();if(pins.Count>200||pins.Select(p=>p.Command).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=pins.Count)throw new CadException("TOOL_RIBBON","Danh sách ghim tối đa 200 lệnh riêng biệt.");
   foreach(var pin in pins){ValidatePin(index,tool,pin,true);if(!tool.RibbonPins.Any(p=>string.Equals(p.Command,pin.Command,StringComparison.OrdinalIgnoreCase)))tool.RibbonPins.Add(pin);}
  });
  void Change(int revision,Action<CadToolIndex> action,Action<CadToolIndex>? committed=null){Directory.CreateDirectory(root);using var mutex=new Mutex(false,"Local\\AICadTools_"+Json.Hash(root));bool held=false;try{try{held=mutex.WaitOne(2000);}catch(AbandonedMutexException){held=true;}if(!held)throw new CadException("TOOL_BUSY","Danh mục công cụ đang được cập nhật.");using var sharedLock=AcquireCatalogLock();var index=Read();if(index.Revision!=revision)throw new CadException("STALE_EDIT","Danh mục đã đổi. Làm mới rồi thử lại.");action(index);index.Revision++;Json.Atomic(Index,index);committed?.Invoke(index);}finally{if(held)mutex.ReleaseMutex();}}

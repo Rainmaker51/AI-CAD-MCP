@@ -17,23 +17,25 @@ public sealed partial class RainmakerAxis
     {
         var editor = doc.Editor;
         editor.WriteMessage("\nLưới theo WCS XY. Nhịp nhập bằng mm, cách nhau bằng dấu cách, ví dụ 4000 5000 hoặc 3*4000.");
-        var xBays = parameters?.XBays ?? ReadBays(editor, "Khoảng cách trục theo X", "4000 4000 4000");
+        var xBays = parameters?.XBays.Length>0 ? parameters.XBays : ReadBays(editor, "Khoảng cách trục theo X", "4000 4000 4000");
         if (xBays == null) return;
-        var yBays = parameters?.YBays ?? ReadBays(editor, "Khoảng cách trục theo Y", "4000 4000");
+        var yBays = parameters?.YBays.Length>0 ? parameters.YBays : ReadBays(editor, "Khoảng cách trục theo Y", "4000 4000");
         if (yBays == null) return;
-        var xLabels = parameters?.XLabels ?? ReadLabels(editor, "Ký hiệu đầu của các trục đứng", "1", xBays.Length + 1);
+        var xLabels = parameters?.XLabels.Length>0 ? parameters.XLabels : ReadLabels(editor, "Ký hiệu đầu của các trục đứng", "1", xBays.Length + 1);
         if (xLabels == null) return;
-        var yLabels = parameters?.YLabels ?? ReadLabels(editor, "Ký hiệu đầu của các trục ngang", "A", yBays.Length + 1);
+        var yLabels = parameters?.YLabels.Length>0 ? parameters.YLabels : ReadLabels(editor, "Ký hiệu đầu của các trục ngang", "A", yBays.Length + 1);
         if (yLabels == null) return;
-        int? denominator = parameters?.Scale ?? ReadScale(doc);
+        int? denominator = parameters?.Scale>0 ? parameters.Scale : ReadScale(doc);
         if (!denominator.HasValue) return;
         var origin = editor.GetPoint("\nChọn giao điểm trục đầu tiên (góc dưới trái của lưới): ");
         if (origin.Status != PromptStatus.OK) return;
         // Editor point input is in the current UCS. Geometry is stored in WCS.
         var worldOrigin = origin.Value.TransformBy(editor.CurrentUserCoordinateSystem);
-        WriteGrid(doc.Database, template, worldOrigin, xBays, yBays, xLabels, yLabels, denominator.Value);
+        if(parameters?.Library==null)throw new CadException("AXIS_SELECTION","Mở bảng Tạo trục để chọn thư viện trước khi vẽ.");
+        parameters.XBays=xBays;parameters.YBays=yBays;parameters.XLabels=xLabels;parameters.YLabels=yLabels;parameters.Scale=denominator.Value;
+        WriteConfigured(doc.Database,CurrentLibrary(parameters.Library,false),parameters,worldOrigin);
         editor.Regen();
-        editor.WriteMessage($"\nRainmaker: Đã tạo {xLabels.Length} trục đứng, {yLabels.Length} trục ngang, dim từng nhịp và dim tổng ở bốn phía.");
+        editor.WriteMessage($"\nRainmaker: Đã tạo {xLabels.Length} trục đứng, {yLabels.Length} trục ngang; dùng block/layer/Dim theo lựa chọn trong kho.");
     }
 
     static double[]? ReadBays(Editor editor, string prompt, string defaults)

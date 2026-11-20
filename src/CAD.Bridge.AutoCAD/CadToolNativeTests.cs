@@ -7,10 +7,47 @@ using JsonUtil=AICad.Contracts.Json;
 [assembly:CommandClass(typeof(AICad.Bridge.CadToolNativeTests))]
 namespace AICad.Bridge;
 public sealed class CadToolNativeTests {
+ [CommandMethod("AICADAXISUPGRADETEST")]
+ public void VerifyAxisUpgrade(){
+  string root=Environment.GetEnvironmentVariable("AICAD_TOOL_TEST_ROOT")??"";if(!Path.IsPathRooted(root)||!File.Exists(Path.Combine(root,".aicad-tools-test")))return;
+  try{
+   var catalog=new CadToolCatalog(Path.Combine(root,"isolated-manager"));var tool=catalog.Import(Path.Combine(root,"package","Rainmaker.Axis.dll"),0);
+   using var runtime=new CadToolRuntime(new InstallConfig{ContentRoot=Path.Combine(root,"isolated-manager"),DataRoot=Path.Combine(root,"managed-data")});
+   var loaded=runtime.Load(tool);loaded.Assembly.GetType("Rainmaker.Axis.AxisNativeTests")!.GetMethod("Run",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic)!.Invoke(null,new object[]{root});
+  }catch(System.Exception e){JsonUtil.Atomic(Path.Combine(root,"axis-upgrade-results.json"),new{passed=false,error=e.ToString()});}
+ }
+ [CommandMethod("AICADAXISCOMPATTEST")]
+ public void VerifyLegacyAxis(){
+  string root=Environment.GetEnvironmentVariable("AICAD_TOOL_TEST_ROOT")??"";if(!Path.IsPathRooted(root)||!File.Exists(Path.Combine(root,".aicad-tools-test")))return;
+  try{
+   var current=typeof(Plugin).Assembly.GetName();
+   if(!CadToolRuntime.CompatibleBridgeReference(new System.Reflection.AssemblyName("CAD.Bridge.AutoCAD, Version=0.7.14.0, Culture=neutral, PublicKeyToken=null"),current)||CadToolRuntime.CompatibleBridgeReference(new System.Reflection.AssemblyName("CAD.Bridge.AutoCAD, Version=99.0.0.0"),current)||CadToolRuntime.CompatibleBridgeReference(new System.Reflection.AssemblyName("Unrelated, Version=0.7.14.0"),current))throw new System.Exception("Bridge compatibility boundary failed");
+   string app=Path.Combine(root,"axis-app-"+Guid.NewGuid().ToString("N"));
+   var catalog=new CadToolCatalog(app);var tool=catalog.Import(Path.Combine(root,"axis-package","Rainmaker.Axis.dll"),0);
+   using var runtime=new CadToolRuntime(new InstallConfig{ContentRoot=app,DataRoot=Path.Combine(root,"axis-data")});
+   var loaded=runtime.Load(tool);
+   var reference=loaded.Assembly.GetReferencedAssemblies().Single(a=>a.Name=="CAD.Bridge.AutoCAD");
+   if(reference.Version!=new Version(0,7,14,0)||loaded.Commands.Count!=2)throw new System.Exception("Test must use actual installed Axis 1.2.0 against old Bridge");
+   var dialog=Activator.CreateInstance(loaded.Assembly.GetType("Rainmaker.Axis.AxisGridDialog")!,System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic,null,new object[]{60.0},null);
+   ((System.Windows.Window)dialog!).Close();
+   var template=new ContentStore(Plugin.Current!.Config.ContentRoot).Template("ISO_QUANGANH");
+   var document=Autodesk.AutoCAD.ApplicationServices.Core.Application.DocumentManager.MdiActiveDocument;
+   loaded.Assembly.GetType("Rainmaker.Axis.RainmakerAxis")!.GetMethod("WriteGrid",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic)!.Invoke(null,new object[]{document.Database,template,new Autodesk.AutoCAD.Geometry.Point3d(0,0,0),new double[]{4000,5000},new double[]{3000},new string[]{"1","2","3"},new string[]{"A","B"},60});
+   using var tx=document.Database.TransactionManager.StartTransaction();
+   var bt=(Autodesk.AutoCAD.DatabaseServices.BlockTable)tx.GetObject(document.Database.BlockTableId,Autodesk.AutoCAD.DatabaseServices.OpenMode.ForRead);
+   var model=(Autodesk.AutoCAD.DatabaseServices.BlockTableRecord)tx.GetObject(bt[Autodesk.AutoCAD.DatabaseServices.BlockTableRecord.ModelSpace],Autodesk.AutoCAD.DatabaseServices.OpenMode.ForRead);
+   var entities=model.Cast<Autodesk.AutoCAD.DatabaseServices.ObjectId>().Select(id=>tx.GetObject(id,Autodesk.AutoCAD.DatabaseServices.OpenMode.ForRead)).ToList();
+   int lines=entities.OfType<Autodesk.AutoCAD.DatabaseServices.Line>().Count(e=>e.Layer=="QA_KT_Truc"),heads=entities.OfType<Autodesk.AutoCAD.DatabaseServices.BlockReference>().Count(e=>e.Layer=="QA_KH_Truc Dinh Vi"),dims=entities.OfType<Autodesk.AutoCAD.DatabaseServices.Dimension>().Count();
+   if(lines!=5||heads!=10||dims<6)throw new System.Exception($"Axis geometry mismatch: {lines} lines, {heads} heads, {dims} dimensions");
+   if(AppDomain.CurrentDomain.GetAssemblies().Count(a=>a.GetName().Name=="CAD.Bridge.AutoCAD")!=1)throw new System.Exception("Duplicate Bridge loaded");
+   JsonUtil.Atomic(Path.Combine(root,"axis-compat-results.json"),new{passed=true,legacyAxisReference=reference.Version.ToString(),manager=current.Version.ToString(),dialogConstructed=true,axisLines=lines,axisHeads=heads,dimensions=dims,singleBridge=true});
+  }catch(System.Exception e){JsonUtil.Atomic(Path.Combine(root,"axis-compat-results.json"),new{passed=false,error=e.ToString()});}
+ }
  [CommandMethod("AICADRIBBONMANAGERTEST")]
  public void VerifyManagedTabs(){
   string root=Environment.GetEnvironmentVariable("AICAD_TOOL_TEST_ROOT")??"";if(!Path.IsPathRooted(root)||!File.Exists(Path.Combine(root,".aicad-tools-test")))return;
   try{
+   VerifySavedRibbonSetup(root);
    string app=Path.Combine(root,"r-"+Guid.NewGuid().ToString("N").Substring(0,8));Directory.CreateDirectory(app);var catalog=new CadToolCatalog(app);var config=new InstallConfig{ContentRoot=app,DataRoot=Path.Combine(root,"d"),HostExecutable=Plugin.Current!.Config.HostExecutable};string dispatched="";
    using var runtime=new CadToolRuntime(config,(id,command)=>dispatched=id+":"+command);
    var tool=catalog.Import(Path.Combine(root,"library","Rainmaker.Library.dll"),0);var loaded=runtime.Load(tool);
@@ -39,8 +76,26 @@ public sealed class CadToolNativeTests {
     var view=(System.Windows.FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(tabs);view.Measure(new System.Windows.Size(620,860));view.Arrange(new System.Windows.Rect(0,0,620,860));view.UpdateLayout();
     var bitmap=new System.Windows.Media.Imaging.RenderTargetBitmap(620,860,96,96,System.Windows.Media.PixelFormats.Pbgra32);bitmap.Render(view);var encoder=new System.Windows.Media.Imaging.PngBitmapEncoder();encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));using var output=File.Create(Path.Combine(root,"ribbon-manager-palette.png"));encoder.Save(output);
    }
-   JsonUtil.Atomic(Path.Combine(root,"ribbon-manager-results.json"),new{passed=true,managedCommands=17,customTabs=true,paletteDispatch=true,rename=true,deleteMovesCommands=true,externalTabsPreserved=true,disableTerminates=true});
+   JsonUtil.Atomic(Path.Combine(root,"ribbon-manager-results.json"),new{passed=true,savedCommandsPinWithoutLoad=true,ribbonStatusAndHiddenTabs=true,pinGroupInheritance=true,managedCommands=17,customTabs=true,paletteDispatch=true,rename=true,deleteMovesCommands=true,externalTabsPreserved=true,disableTerminates=true});
   }catch(System.Exception error){JsonUtil.Atomic(Path.Combine(root,"ribbon-manager-results.json"),new{passed=false,error=error.ToString()});}
+ }
+ static void VerifySavedRibbonSetup(string root){
+  var catalog=new CadToolCatalog(Path.Combine(root,"saved-ribbon-"+Guid.NewGuid().ToString("N")));
+  var tool=catalog.Import(Path.Combine(root,"library","Rainmaker.Library.dll"),0);
+  catalog.Update(tool.Id,1,"Architecture","Drawing","",true,new[]{"ARCWALLADD","ARCDOORADD"});
+  var index=catalog.Read();tool=index.Items.Single();
+  if(!CadToolRibbonSetup.Status(index,tool).Contains("chưa ghim"))throw new System.Exception("Missing no-pins guidance");
+  CadToolRibbonSetup.PinAll(catalog,index,tool,tool.TabId,null);
+  index=catalog.Read();tool=index.Items.Single();
+  if(tool.RibbonPins.Count!=2||tool.RibbonPins.Any(p=>p.Group!="")||!CadToolRibbonSetup.Status(index,tool).Contains("2/2"))throw new System.Exception("Saved-only Ribbon setup failed");
+  catalog.SetRibbonPin(tool.Id,index.Revision,new(){Command="ARCWALLADD",Label="Custom wall"},true);
+  index=catalog.Read();tool=index.Items.Single();CadToolRibbonSetup.PinAll(catalog,index,tool,tool.TabId,null);
+  index=catalog.Read();tool=index.Items.Single();if(tool.RibbonPins.Single(p=>p.Command=="ARCWALLADD").Label!="Custom wall")throw new System.Exception("Custom label replaced");
+  string hidden=catalog.SaveTab(index.Revision,"","Hidden",20,false);index=catalog.Read();
+  catalog.Update(tool.Id,index.Revision,tool.Name,"Changed group",tool.Notes,true,tool.Commands,tabId:hidden);
+  index=catalog.Read();tool=index.Items.Single();if(!CadToolRibbonSetup.Status(index,tool).Contains("tab đang ẩn")||tool.RibbonPins.Any(p=>CadToolCatalog.RibbonGroup(tool,p)!="Changed group"))throw new System.Exception("Hidden tabs or inherited groups not reflected");
+  catalog.SetRibbonPin(tool.Id,index.Revision,new(){Command="ARCWALLADD"},false);
+  if(catalog.Read().Items.Single().RibbonPins.Count!=1)throw new System.Exception("Manual unpin lost");
  }
  [CommandMethod("AICADTOOLSTEST")]
  public void Run(){string root=Environment.GetEnvironmentVariable("AICAD_TOOL_TEST_ROOT")??"";if(!Path.IsPathRooted(root)||!File.Exists(Path.Combine(root,".aicad-tools-test")))return;

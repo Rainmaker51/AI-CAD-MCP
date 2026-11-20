@@ -71,6 +71,18 @@ groupedTool=ribbons.Read().Items.Single();
 Check(CadToolCatalog.RibbonGroup(groupedTool,groupedTool.RibbonPins.Single(p=>p.Command=="QATEST2"))=="Thư viện");
 Console.WriteLine("PASS: inherited Ribbon groups follow profile changes and explicit groups can return to inheritance");
 
+// A saved command list can be pinned without loading the DLL; tab and pins commit together.
+string savedTab=ribbons.SaveTab(14,"","Saved commands",30);
+Reject(()=>ribbons.PinCommands(groupedTool.Id,15,new[]{new CadRibbonPin{Command="UNKNOWN"}},savedTab),"TOOL_COMMAND");
+Check(ribbons.Read().Revision==15&&ribbons.Read().Items.Single().TabId==CadToolCatalog.DefaultTabId);
+ribbons.SetRibbonPin(groupedTool.Id,15,new(){Command="QATEST2"},false);
+ribbons.PinCommands(groupedTool.Id,16,new[]{new CadRibbonPin{Command="QATEST",Label="Do not replace"},new CadRibbonPin{Command="QATEST2",Label="New saved pin",Group=""}},savedTab);
+var savedPins=ribbons.Read().Items.Single();
+Check(ribbons.Read().Revision==17&&savedPins.TabId==savedTab&&savedPins.RibbonPins.Count==2);
+Check(savedPins.RibbonPins.Single(p=>p.Command=="QATEST").Label=="Nhận vào nhóm");
+Check(CadToolCatalog.RibbonGroup(savedPins,savedPins.RibbonPins.Single(p=>p.Command=="QATEST2"))=="Thư viện");
+Console.WriteLine("PASS: saved commands pin without loading, atomic tab/pins rollback, custom labels preserved, new pins inherit group");
+
 // New installations are single-version; history survives and shared replicas cannot load partial packages.
 var storage=new CadToolCatalog(Path.Combine(root,"storage"));
 var installed=storage.Import(source,0);Check(installed.RelativePath.Contains(Path.Combine("dotnet","_Installed","sample")));

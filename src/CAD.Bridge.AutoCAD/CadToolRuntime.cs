@@ -25,12 +25,22 @@ internal sealed class CadToolRuntime:IDisposable {
   var shared=new[]{typeof(Plugin).Assembly,typeof(CadToolCatalog).Assembly,typeof(Newtonsoft.Json.Linq.JObject).Assembly}
    .FirstOrDefault(assembly=>string.Equals(assembly.FullName,args.Name,StringComparison.OrdinalIgnoreCase));
   if(shared!=null)return shared;
+  // Axis 1.2.0 was compiled against Bridge 0.7.14. Keep it on the host's
+  // compatible Bridge API instead of loading a second Manager into AutoCAD.
+  var bridge=typeof(Plugin).Assembly;
+  if(CompatibleBridgeReference(new AssemblyName(args.Name),bridge.GetName()))return bridge;
   var name=new AssemblyName(args.Name);string file=Path.Combine(folder,name.Name+".dll");
   if(!File.Exists(file))return null;
   string hash=JsonUtil.FileHash(file);if(dependencies.TryGetValue(args.Name,out string previous)&&previous!=hash)throw new CadException("TOOL_RESTART_REQUIRED","Dependency đã đổi: "+name.Name+". Mở lại AutoCAD để nạp đúng phiên bản.");
   var existing=folders.Keys.FirstOrDefault(a=>a.FullName==args.Name&&dependencies.TryGetValue(args.Name,out string value)&&value==hash);if(existing!=null)return existing;
   var assembly=Assembly.LoadFile(file);folders[assembly]=folder;dependencies[args.Name]=hash;return assembly;
  }
+ internal static bool CompatibleBridgeReference(AssemblyName requested,AssemblyName current)=>
+  requested.Name=="CAD.Bridge.AutoCAD"&&current.Name==requested.Name&&
+  string.Equals(requested.CultureName??"",current.CultureName??"",StringComparison.OrdinalIgnoreCase)&&
+  (requested.GetPublicKeyToken()??Array.Empty<byte>()).SequenceEqual(current.GetPublicKeyToken()??Array.Empty<byte>())&&
+  requested.Version!=null&&current.Version!=null&&requested.Version>=new Version(0,7,14,0)&&
+  requested.Version<=current.Version&&requested.Version.Major==0&&current.Version.Major==0;
  internal CadLoadedTool Load(CadToolEntry tool,bool reload=false){
   string file=catalog.Demand(tool);if(tool.Kind!="dotnet")throw new CadException("TOOL_TYPE","Chọn công cụ DLL.");
   if(loaded.TryGetValue(tool.Id,out var current)&&current.Package==tool.PackageHash&&!reload)return current;

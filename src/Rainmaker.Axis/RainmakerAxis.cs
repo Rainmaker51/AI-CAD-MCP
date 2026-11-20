@@ -52,6 +52,9 @@ public sealed partial class RainmakerAxis
             var mode = editor.GetKeywords(new PromptKeywordOptions("\nTạo trục [Grid/Single] <Grid>: ", "Grid Single") { AllowNone = true });
             if (mode.Status != PromptStatus.OK && mode.Status != PromptStatus.None) return;
             single = mode.StringResult == "Single";
+            parameters = new AxisGridParameters { Single=single };
+            var library = new AxisLibrary(plugin.Config.ContentRoot);
+            parameters.Library=library.Resolve(library.Load(),single);
         }
         if (!single)
         {
@@ -67,17 +70,25 @@ public sealed partial class RainmakerAxis
         });
         if (second.Status != PromptStatus.OK) return;
         string label = parameters?.SingleLabel ?? "";
-        if (parameters == null)
+        if (!showDialog)
         {
             var name = editor.GetString(new PromptStringOptions("\nKý hiệu trục (ví dụ A hoặc 1): ") { AllowSpaces = false });
             if (name.Status != PromptStatus.OK) return;
             label = name.StringResult.Trim();
         }
-        int? denominator = parameters?.Scale ?? ReadScale(doc);
+        int? denominator = showDialog ? parameters?.Scale : ReadScale(doc);
         if (!denominator.HasValue) return;
-        Write(doc.Database, new ContentStore(plugin.Config.ContentRoot).Template("ISO_QUANGANH"),
-            first.Value, second.Value, label, denominator.Value);
+        parameters!.Scale=denominator.Value;parameters.SingleLabel=label;
+        var current=CurrentLibrary(parameters.Library!,true);
+        WriteConfigured(doc.Database,current,parameters,first.Value.TransformBy(editor.CurrentUserCoordinateSystem),second.Value.TransformBy(editor.CurrentUserCoordinateSystem));
         editor.WriteMessage("\nRainmaker: Đã tạo trục " + label + ".");
+    }
+
+    static AxisResolvedLibrary CurrentLibrary(AxisResolvedLibrary selected,bool single)
+    {
+        var current=new AxisLibrary(Plugin.Current!.Config.ContentRoot).Resolve(selected.Settings,single);
+        if(current.Snapshot!=selected.Snapshot)throw new CadException("RESOURCE_CHANGED","Thư viện hoặc cấu hình đã thay đổi. Mở lại bảng để kiểm tra trước khi vẽ.");
+        return current;
     }
 
     static int? ReadScale(Autodesk.AutoCAD.ApplicationServices.Document doc)

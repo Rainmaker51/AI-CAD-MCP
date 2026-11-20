@@ -62,6 +62,8 @@ try {
   if($LASTEXITCODE -ne 0){throw 'Axis grid tests failed'}
   & $sdk run --project tests/LibrarySync.Tests/LibrarySync.Tests.csproj -c Release
   if($LASTEXITCODE -ne 0){throw 'Library sync tests failed'}
+  & $sdk run --project tests/ResourceIdentifiers.Tests/ResourceIdentifiers.Tests.csproj -c Release
+  if($LASTEXITCODE -ne 0){throw 'Library resource identifier tests failed'}
  }
  Write-Host 'Build ready. Open Mo AI CAD.cmd.'
 }finally{Pop-Location}
