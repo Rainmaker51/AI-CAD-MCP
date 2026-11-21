@@ -18,6 +18,7 @@ internal static class AxisNativeTests
 {
  internal static void Run(string root)
  {
+  JsonUtil.Atomic(Path.Combine(root,"axis-contracts-runtime.json"),new{contracts=typeof(LibrarySyncItem).Assembly.Location,valuesGetter=typeof(LibrarySyncItem).GetProperty("Values")?.PropertyType.FullName,axis=typeof(RainmakerAxis).Assembly.GetName().Version?.ToString()});
   void Check(bool v,string message){if(!v)throw new Exception(message);}
   var library=new AxisLibrary(Plugin.Current!.Config.ContentRoot);var settings=library.Load();
   Check(settings.BayDimId==""&&settings.TotalDimId=="","Must not guess initial Dim styles");
@@ -35,6 +36,8 @@ internal static class AxisNativeTests
   var reduced=RainmakerAxis.ConfiguredPlan(selected,p,Point3d.Origin);Check(reduced.Operations.Count(o=>o.Kind=="insert_block")==5&&reduced.Operations.Count(o=>o.Kind=="add_dimension")==5,"Placement switches affect shared plan");
   settings.Top=true;settings.Right=true;settings.HeadEnds="Both";
   var doc=Autodesk.AutoCAD.ApplicationServices.Core.Application.DocumentManager.MdiActiveDocument;
+  doc.Database.Dimtxt=60;doc.Database.Dimasz=60;doc.Database.Dimgap=12;doc.Database.Dimscale=75;
+  double currentText=doc.Database.Dimtxt,currentArrow=doc.Database.Dimasz,currentGap=doc.Database.Dimgap,currentDimScale=doc.Database.Dimscale;
   RainmakerAxis.WriteConfigured(doc.Database,selected,p,Point3d.Origin);
   using(var source=new Database(false,true)){
    source.ReadDwgFile(selected.DimFile,FileOpenMode.OpenForReadAndAllShare,true,"");source.CloseInput(true);
@@ -44,8 +47,10 @@ internal static class AxisNativeTests
    var written=entities.OfType<Dimension>().ToArray();Check(written.Length==10&&written.Select(d=>d.DimensionStyle).Distinct().Count()==2,"Two actual chosen Dim styles applied");
    var sourceTable=(DimStyleTable)read.GetObject(source.DimStyleTableId,OpenMode.ForRead);
    foreach(var d in written){
-    var actual=(DimStyleTableRecord)tx.GetObject(d.DimensionStyle,OpenMode.ForRead);var choice=actual.Name.Contains(selected.BayDim.Code)?selected.BayDim:selected.TotalDim;
+    var actual=(DimStyleTableRecord)tx.GetObject(d.DimensionStyle,OpenMode.ForRead);var choice=actual.Name==selected.BayDim.Name?selected.BayDim:selected.TotalDim;
     var expected=(DimStyleTableRecord)read.GetObject(sourceTable[choice.Name],OpenMode.ForRead);
+    Check(d.Dimtxt==expected.Dimtxt&&d.Dimasz==expected.Dimasz&&d.Dimgap==expected.Dimgap,"Effective entity properties must not inherit current drawing overrides: "+d.Dimtxt+" / "+d.Dimasz+" / "+d.Dimgap);
+    Check(d.Dimscale==(expected.Annotative==AnnotativeStates.True?0:p.Scale),"Drawing scale applies exactly once");
     Check(actual.Dimtxt==expected.Dimtxt&&actual.Dimasz==expected.Dimasz&&actual.Dimscale==expected.Dimscale&&actual.Dimlfac==expected.Dimlfac&&actual.Dimdec==expected.Dimdec&&actual.Dimexo==expected.Dimexo&&actual.Dimexe==expected.Dimexe&&actual.Dimgap==expected.Dimgap&&actual.Annotative==expected.Annotative,"Real source Dim properties preserved without formula overrides");
     var text=(TextStyleTableRecord)tx.GetObject(actual.Dimtxsty,OpenMode.ForRead);var sourceText=(TextStyleTableRecord)read.GetObject(expected.Dimtxsty,OpenMode.ForRead);Check(text.FileName==sourceText.FileName&&text.BigFontFileName==sourceText.BigFontFileName,"Text style dependencies cloned");
    }
@@ -75,13 +80,33 @@ internal static class AxisNativeTests
    source.ReadDwgFile(selected.DimFile,FileOpenMode.OpenForReadAndAllShare,true,"");source.CloseInput(true);using(var tx=source.TransactionManager.StartTransaction()){var table=(DimStyleTable)tx.GetObject(source.DimStyleTableId,OpenMode.ForRead);var dim=(DimStyleTableRecord)tx.GetObject(table[selected.BayDim.Name],OpenMode.ForWrite);dim.Annotative=AnnotativeStates.True;dim.Dimscale=0;tx.Commit();}source.SaveAs(annoFile,DwgVersion.AC1032);
   }
   string originalFile=selected.DimFile,originalHash=selected.DimHash;selected.DimFile=annoFile;selected.DimHash=JsonUtil.FileHash(annoFile);string beforeScale=doc.Database.Cannoscale.Name;
-  RainmakerAxis.WriteConfigured(doc.Database,selected,p,new Point3d(30000,0,0));
+  RainmakerAxis.WriteConfigured(doc.Database,selected,p,new Point3d(30000,0,0),null,true);
   using(var tx=doc.Database.TransactionManager.StartTransaction()){
-   var bt=(BlockTable)tx.GetObject(doc.Database.BlockTableId,OpenMode.ForRead);var model=(BlockTableRecord)tx.GetObject(bt[BlockTableRecord.ModelSpace],OpenMode.ForRead);var annotated=model.Cast<ObjectId>().Select(id=>tx.GetObject(id,OpenMode.ForRead)).OfType<AlignedDimension>().Where(d=>d.XLine1Point.X>=30000&&((DimStyleTableRecord)tx.GetObject(d.DimensionStyle,OpenMode.ForRead)).Name.Contains(selected.BayDim.Code)).ToList();
+   var bt=(BlockTable)tx.GetObject(doc.Database.BlockTableId,OpenMode.ForRead);var model=(BlockTableRecord)tx.GetObject(bt[BlockTableRecord.ModelSpace],OpenMode.ForRead);var annotated=model.Cast<ObjectId>().Select(id=>tx.GetObject(id,OpenMode.ForRead)).OfType<AlignedDimension>().Where(d=>d.XLine1Point.X>=30000&&((DimStyleTableRecord)tx.GetObject(d.DimensionStyle,OpenMode.ForRead)).Name==selected.BayDim.Name).ToList();
    JsonUtil.Atomic(Path.Combine(root,"annotative-check.json"),new{count=annotated.Count,dimensions=annotated.Select(d=>new{annotative=d.Annotative.ToString(),hasContext=d.HasContext(EntityFactory.GetScale(doc.Database,60)),d.Dimscale}).ToList()});
    Check(annotated.Count==6&&annotated.All(d=>d.Annotative==AnnotativeStates.True&&d.HasContext(EntityFactory.GetScale(doc.Database,60))&&d.Dimscale==0),"Annotative bay dimensions carry chosen annotation context without double scaling");Check(doc.Database.Cannoscale.Name==beforeScale,"Do not change drawing current annotation scale");
   }
   selected.DimFile=originalFile;selected.DimHash=originalHash;
+  Check(doc.Database.Dimtxt==currentText&&doc.Database.Dimasz==currentArrow&&doc.Database.Dimgap==currentGap&&doc.Database.Dimscale==currentDimScale,"Do not change current drawing DIM overrides");
+  var actualSettings=library.Load();var actualDim=library.Options.Single(o=>o.Kind=="dims"&&o.Name=="DIM");actualSettings.BayDimId=actualSettings.TotalDimId=actualDim.Id;
+  var actualLibrary=library.Resolve(actualSettings,false);var readings=new System.Collections.Generic.List<object>();
+  foreach(int scale in new[]{60,100}){
+   p.Scale=scale;double offset=scale==60?60000:90000;RainmakerAxis.WriteConfigured(doc.Database,actualLibrary,p,new Point3d(offset,0,0));
+   using var tx=doc.Database.TransactionManager.StartTransaction();var bt=(BlockTable)tx.GetObject(doc.Database.BlockTableId,OpenMode.ForRead);var model=(BlockTableRecord)tx.GetObject(bt[BlockTableRecord.ModelSpace],OpenMode.ForRead);
+   var dimensions=model.Cast<ObjectId>().Select(id=>tx.GetObject(id,OpenMode.ForRead)).OfType<AlignedDimension>().Where(d=>d.XLine1Point.X>=offset&&d.XLine1Point.X<offset+20000).ToList();Check(dimensions.Count==10,"Actual selected DIM fixture count");
+   foreach(var d in dimensions){
+    var record=(DimStyleTableRecord)tx.GetObject(d.DimensionStyle,OpenMode.ForRead);Check(d.Dimtxt==record.Dimtxt&&d.Dimasz==record.Dimasz,"DIM actual entity inherits chosen library values");
+    var graphics=(BlockTableRecord)tx.GetObject(d.DimBlockId,OpenMode.ForRead);var text=graphics.Cast<ObjectId>().Select(id=>tx.GetObject(id,OpenMode.ForRead)).OfType<MText>().ToList();
+    Check(text.Count>0&&text.All(t=>Math.Abs(t.TextHeight-record.Dimtxt*scale)<1e-6),"Rendered text height equals library paper height times chosen scale exactly once");
+    readings.Add(new{scale,style=actualDim.Name,d.Dimtxt,d.Dimasz,d.Dimscale,renderedText=text.Select(t=>t.TextHeight).ToArray()});
+   }
+  }
+  JsonUtil.Atomic(Path.Combine(root,"actual-dim-scale.json"),readings);
+  ConstructionNativeTests.Run(root);
+  AxisInteractiveNativeTests.Run(root);
+  AxisInteraction150Tests.Run(root);
+  AxisInteraction160Tests.Run(root);
+  AxisInteraction170Tests.Run(root);
   JsonUtil.Atomic(Path.Combine(root,"axis-upgrade-results.json"),new{passed=true,axisLines=5,axisHeads=10,dimensions=10,sourceDimProperties=true,textDependencies=true,persistedStableIds=true,staleSaveRejected=true,placementOptions=true,dialogAndPreviewRendered=true,invalidInputBlocksDrawing=true,saveReopen=true,annotativeContext=true});
  }
 }

@@ -2,7 +2,7 @@
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
     <PlatformTarget>x64</PlatformTarget>
-    <Version>1.3.1</Version>
+    <Version>1.7.0</Version>
     <AutoCadDir Condition="'$(AutoCadDir)'==''">C:/Program Files/Autodesk/AutoCAD 2021</AutoCadDir>
   </PropertyGroup>
   <ItemGroup>

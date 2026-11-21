@@ -1,5 +1,7 @@
 # Yêu cầu nâng cấp Rainmaker.Axis — chọn thư viện kho và preview
 
+Kế hoạch mới ngày 21/11/2026: [Yêu cầu 1.3.3 — hai tab, chèn cột và tường/hatch theo trục](RAINMAKER-AXIS-1.3.3-REQUIREMENTS.md). Chỉ ghi nhận/nghiên cứu, chưa triển khai; tài liệu dưới đây giữ lịch sử kế hoạch 1.3 ban đầu.
+
 Ngày ghi nhận/nghiên cứu: 20/11/2026. Cập nhật: **đã triển khai phần chọn kho, preview và bố trí ở bản 1.3.0**; xem `docs/RAINMAKER-AXIS.md` và manifest/validation của build để biết kết quả kiểm thử, tình trạng cài đặt. Các tính năng mở rộng ở mục 6 không mặc định được triển khai toàn bộ.
 
 ## 1. Phạm vi người dùng yêu cầu

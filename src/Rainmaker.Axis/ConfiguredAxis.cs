@@ -48,39 +48,34 @@ public sealed partial class RainmakerAxis
   return plan;
  }
 
- internal static void WriteConfigured(Database db,AxisResolvedLibrary library,AxisGridParameters p,Point3d origin,Point3d? singleEnd=null)
+ internal static List<ObjectId> WriteConfigured(Database db,AxisResolvedLibrary library,AxisGridParameters p,Point3d origin,Point3d? singleEnd=null,bool replaceDims=false)
  {
   NativeWriteGuard.CheckDatabase(db);var plan=ConfiguredPlan(library,p,origin,singleEnd);NativeLibraryAssets.Demand(plan);
   using var tx=db.TransactionManager.StartTransaction();
   NativeLayerStandards.Resources(plan.Template,db,tx);
-  var styles=p.Single?new Dictionary<string,ObjectId>():CloneDimensionStyles(db,tx,library);
+  var styles=p.Single?new Dictionary<string,ObjectId>():DimensionLibrary.Import(db,tx,library,new[]{library.BayDim,library.TotalDim},replaceDims);
+  var ids=new List<ObjectId>();
   var bt=(BlockTable)tx.GetObject(db.BlockTableId,OpenMode.ForRead);var model=(BlockTableRecord)tx.GetObject(bt[BlockTableRecord.ModelSpace],OpenMode.ForWrite);
   foreach(var op in plan.Operations){
    Entity entity;
-   if(op.Kind=="add_dimension")entity=new AlignedDimension(EntityFactory.P(op.Points[0]),EntityFactory.P(op.Points[1]),EntityFactory.P(op.Points[2]),"",styles[op.Style]);
+   if(op.Kind=="add_dimension")entity=new AlignedDimension(EntityFactory.P(op.Points[0]),EntityFactory.P(op.Points[1]),EntityFactory.P(op.Points[2]),"",styles[op.Style=="bay"?library.BayDim.Id:library.TotalDim.Id]);
    else entity=EntityFactory.Make(op,plan,db,tx);
    entity.SetDatabaseDefaults(db);entity.Layer=op.Layer;entity.ColorIndex=256;model.AppendEntity(entity);tx.AddNewlyCreatedDBObject(entity,true);
+   ids.Add(entity.ObjectId);
    if(entity is Dimension dim){
-    dim.DimensionStyle=styles[op.Style];var record=(DimStyleTableRecord)tx.GetObject(styles[op.Style],OpenMode.ForRead);
-    if(record.Annotative==AnnotativeStates.True){dim.Annotative=AnnotativeStates.True;var scale=EntityFactory.GetScale(db,p.Scale);if(!dim.HasContext(scale))dim.AddContext(scale);var current=db.Cannoscale;if(current.Name!=scale.Name&&dim.HasContext(current))dim.RemoveContext(current);}
+    var style=styles[op.Style=="bay"?library.BayDim.Id:library.TotalDim.Id];dim.DimensionStyle=style;var record=(DimStyleTableRecord)tx.GetObject(style,OpenMode.ForRead);
+    // SetDatabaseDefaults copied the drawing's current DIM overrides. Assigning
+    // DimensionStyle alone does not clear them: apply the chosen record explicitly.
+    dim.SetDimstyleData(record);
+    dim.Annotative=record.Annotative==AnnotativeStates.True?AnnotativeStates.True:AnnotativeStates.False;
+    dim.Dimscale=record.Annotative==AnnotativeStates.True?0:p.Scale;
+    if(p.FixedDimExtensions){if(!AxisLibrary.ValidDistance(p.DimExtensionLength))throw new ArgumentException("Chiều dài chân dim phải lớn hơn 0.");dim.DimfxlenOn=true;dim.Dimfxlen=p.DimExtensionLength/p.Scale;}
+    if(record.Annotative==AnnotativeStates.True){var scale=EntityFactory.GetScale(db,p.Scale);if(!dim.HasContext(scale))dim.AddContext(scale);var current=db.Cannoscale;if(current.Name!=scale.Name&&dim.HasContext(current))dim.RemoveContext(current);}
     dim.RecomputeDimensionBlock(true);
    }else{EntityFactory.Finish(entity,op,plan,db,tx);EntityFactory.DemandBounds(entity,plan);}
   }
   tx.Commit();
+  return ids;
  }
 
- static Dictionary<string,ObjectId> CloneDimensionStyles(Database target,Transaction tx,AxisResolvedLibrary library)
- {
-  if(JsonUtil.FileHash(library.DimFile)!=library.DimHash)throw new CadException("RESOURCE_CHANGED","Nguồn Dim thay đổi sau khi chọn.");
-  using var source=new Database(false,true);source.ReadDwgFile(library.DimFile,FileOpenMode.OpenForReadAndAllShare,true,"");source.CloseInput(true);
-  using var read=source.TransactionManager.StartOpenCloseTransaction();var table=(DimStyleTable)read.GetObject(source.DimStyleTableId,OpenMode.ForRead);
-  var requested=new[]{library.BayDim,library.TotalDim}.GroupBy(o=>o.Id).Select(g=>g.First()).ToList();
-  foreach(var choice in requested)if(!table.Has(choice.Name))throw new CadException("AXIS_DIM_SOURCE","Không có Dim style "+choice.Name+" trong DWG nguồn.");
-  var ids=new ObjectIdCollection(requested.Select(o=>table[o.Name]).ToArray());var mapping=new IdMapping();
-  // Clone the real definitions and their dependencies; private names never overwrite an existing drawing style.
-  source.WblockCloneObjects(ids,target.DimStyleTableId,mapping,DuplicateRecordCloning.MangleName,false);
-  var result=new Dictionary<string,ObjectId>();string run=Guid.NewGuid().ToString("N").Substring(0,8);
-  foreach(var choice in requested){var id=mapping[table[choice.Name]].Value;var record=(DimStyleTableRecord)tx.GetObject(id,OpenMode.ForWrite);record.Name="RMAX_"+choice.Code+"_"+run;result[choice.Id]=id;}
-  return new(){{"bay",result[library.BayDim.Id]},{"total",result[library.TotalDim.Id]}};
- }
 }

@@ -27,13 +27,31 @@ internal sealed class AxisLibrarySettings
  public string HeadEnds {get;set;}="Both";
  public double DimOffset {get;set;}=1000;
  public double DimRowGap {get;set;}=600;
+ public string ColumnLayerId {get;set;}="";
+ public string WallLayerId {get;set;}="";
+ public string HatchLayerId {get;set;}="";
+ public string WallHatchId {get;set;}="";
+ public string ColumnHatchId {get;set;}="";
+ public string ColumnHatchLayerId {get;set;}="";
 }
 internal sealed class AxisLibraryOption
 {
  internal string Id="",Code="",Kind="",Name="";
- internal LibrarySyncItem Sync=null!;
+ internal AxisSyncItem Sync=null!;
  public string Label=>Code+" · "+Name;
  public override string ToString()=>Label;
+}
+// Parse the on-disk schema locally: Manager versions may expose Values as
+// JToken or JObject under the same CAD.Contracts assembly version.
+// Calling that changing getter creates a binary MissingMethodException.
+internal sealed class AxisSyncItem
+{
+ public string Id {get;set;}="";
+ public string Kind {get;set;}="";
+ public string Name {get;set;}="";
+ public string Handle {get;set;}="";
+ public bool Draft {get;set;}
+ public JObject Values {get;set;}=new();
 }
 internal sealed class AxisResolvedLibrary
 {
@@ -45,6 +63,10 @@ internal sealed class AxisResolvedLibrary
  internal string DimFile="",DimHash="";
  internal JObject BayParameters=null!,TotalParameters=null!;
  internal string Snapshot="";
+ internal LayerAsset? ColumnLayer,WallLayer,HatchLayer;
+ internal JObject? WallHatch;
+ internal LayerAsset? ColumnHatchLayer;
+ internal JObject? ColumnHatch;
 }
 internal sealed class AxisLibrary
 {
@@ -64,11 +86,11 @@ internal sealed class AxisLibrary
   var index=JObject.Parse(File.ReadAllText(indexFile));
   if(index.Value<int>("SchemaVersion")!=1)throw new CadException("AXIS_CODES","Phiên bản sổ mã không được hỗ trợ.");
   string stateFile=Path.Combine(root,"Catalog","sync","state.json");
-  var state=JObject.Parse(File.ReadAllText(stateFile))["Items"]!.ToObject<List<LibrarySyncItem>>()!;
+  var state=JObject.Parse(File.ReadAllText(stateFile))["Items"]!.ToObject<List<AxisSyncItem>>()!;
   foreach(var entry in index["Items"]!.OfType<JObject>().Where(e=>e.Value<string>("SourceId")=="ISO_QUANGANH")){
    var matches=state.Where(s=>!s.Draft&&s.Kind==entry.Value<string>("Kind")&&s.Id==entry.Value<string>("Id")).ToList();
    if(matches.Count!=1)continue;
-   var sync=matches[0];if(sync.Kind!="blocks"&&sync.Kind!="layers"&&sync.Kind!="dims")continue;
+   var sync=matches[0];if(sync.Kind!="blocks"&&sync.Kind!="layers"&&sync.Kind!="dims"&&sync.Kind!="hatches")continue;
    Options.Add(new(){Id=sync.Id,Code=entry.Value<string>("Code")!,Kind=sync.Kind,Name=sync.Name,Sync=sync});
   }
   if(Options.GroupBy(o=>o.Kind+":"+o.Id).Any(g=>g.Count()!=1)||Options.GroupBy(o=>o.Code).Any(g=>g.Count()!=1))throw new CadException("AXIS_CODES","Sổ mã có định danh trùng.");
@@ -122,5 +144,17 @@ internal sealed class AxisLibrary
    if(!File.Exists(result.DimFile)||JsonUtil.FileHash(result.DimFile)!=result.DimHash)throw new CadException("RESOURCE_CHANGED","DWG nguồn Dim thiếu hoặc đã thay đổi.");
   }
   result.Snapshot=JsonUtil.Hash(new{Template,settings,styles});return result;
+ }
+ internal void ResolveConstruction(AxisResolvedLibrary result,AxisGridParameters p)
+ {
+  var management=new LibraryCatalog(appRoot);
+  LayerAsset Layer(string id){var option=Demand("layers",id);var layer=Template.Layers.SingleOrDefault(l=>l.Name==option.Name)??throw new CadException("AXIS_LAYER","Layer chưa đồng bộ: "+option.Label);management.Available("layers",JsonUtil.Hash(new[]{Template.Id,layer.Name}));return layer;}
+  JObject Hatch(string id){var option=Demand("hatches",id);var values=(JObject)option.Sync.Values.DeepClone();
+   var folder=Path.Combine(root,"Hatches","ISO_QUANGANH");var active=JObject.Parse(File.ReadAllText(Path.Combine(folder,"active.json")));var raw=Path.Combine(folder,ContentStore.VersionName(active.Value<string>("version")!),"catalog.json");if(JsonUtil.FileHash(raw)!=active.Value<string>("checksum"))throw new CadException("RESOURCE_CHANGED","Danh mục hatch thay đổi.");
+   var hatches=JObject.Parse(File.ReadAllText(raw));var entries=hatches["items"]?.OfType<JObject>().Where(h=>(h.Value<string>("id")??"").StartsWith(option.Id,StringComparison.Ordinal)&&new[]{"pattern","type","scale","angle","layer","color","spacing","doublePattern"}.All(k=>JToken.DeepEquals(h[k],option.Sync.Values[k]))).ToList();if(entries==null||entries.Count!=1)throw new CadException("AXIS_HATCH","Hatch chưa khớp kho; đọc và đồng bộ lại trước.");management.Available("hatches",entries[0].Value<string>("id")!);
+   result.Snapshot=JsonUtil.Hash(new{result.Snapshot,hatches,values});return values;
+  }
+  if(p.Columns){result.ColumnLayer=Layer(result.Settings.ColumnLayerId);if(p.ColumnHatch){result.ColumnHatchLayer=Layer(result.Settings.ColumnHatchLayerId);result.ColumnHatch=Hatch(result.Settings.ColumnHatchId);}}
+  if(p.Walls){result.WallLayer=Layer(result.Settings.WallLayerId);if(p.WallHatch){result.HatchLayer=Layer(result.Settings.HatchLayerId);result.WallHatch=Hatch(result.Settings.WallHatchId);}}
  }
 }

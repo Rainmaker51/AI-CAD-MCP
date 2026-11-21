@@ -39,13 +39,26 @@ public sealed partial class RainmakerAxis
         var editor = doc.Editor;
         AxisGridParameters? parameters = null;
         bool single;
+        GridDefinition? editing=null;
         if (showDialog)
         {
             double currentScale = doc.Database.Cannoscale.DrawingUnits / doc.Database.Cannoscale.PaperUnits;
-            var dialog = new AxisGridDialog(currentScale);
-            if (Autodesk.AutoCAD.ApplicationServices.Application.ShowModalWindow(dialog) != true) return;
-            parameters = dialog.Parameters!;
-            single = parameters.Single;
+            while(true){
+             var dialog=new AxisGridDialog(currentScale,editing);
+             if(Autodesk.AutoCAD.ApplicationServices.Application.ShowModalWindow(dialog)!=true)return;
+             editing=dialog.Editing;
+             if(dialog.Action=="New"){editing=null;continue;}
+             if(dialog.Action=="Locate"){if(editing!=null)GridStore.Locate(doc,editing);continue;}
+             if(dialog.Action=="Select"){
+              var pick=editor.GetEntity("\nChọn một đối tượng thuộc lưới cần sửa: ");if(pick.Status!=PromptStatus.OK)return;editing=GridStore.Read(doc.Database,pick.ObjectId);if(editing==null){System.Windows.MessageBox.Show("Lưới chưa có dữ liệu quản lý. Dùng Nhận lưới cũ và chọn đầy đủ các đối tượng cần thay.");}continue;
+             }
+             if(dialog.Action=="Adopt"){
+              var selection=editor.GetSelection(new PromptSelectionOptions{MessageForAdding="\nChọn TOÀN BỘ trục/đầu trục/dim cũ muốn nhận quản lý; các đối tượng đã chọn sẽ được thay khi áp dụng: "});if(selection.Status!=PromptStatus.OK)return;
+              if(System.Windows.MessageBox.Show("Nhận quản lý "+selection.Value.Count+" đối tượng được chọn? Sau đó kiểm tra nhịp, ký hiệu, tỷ lệ và tài nguyên trong preview. Chưa ghi thay đổi ở bước này.","Nhận lưới cũ",System.Windows.MessageBoxButton.YesNo)!=System.Windows.MessageBoxResult.Yes)return;
+              editing=GridStore.Adopt(doc.Database,selection.Value.GetObjectIds(),new AxisLibrary(plugin.Config.ContentRoot).Load());continue;
+             }
+             parameters=dialog.Parameters!;single=parameters.Single;break;
+            }
         }
         else
         {
@@ -58,6 +71,12 @@ public sealed partial class RainmakerAxis
         }
         if (!single)
         {
+            if(editing!=null){
+             var changes=GridStore.Changes(doc.Database,editing);string detail=$"Thay {editing.Members.Count} đối tượng của lưới, tính lại trục/dim/cột/tường/hatch theo preview.\n";
+             if(changes.Count>0)detail+="Có "+changes.Count+" đối tượng sửa tay/xóa:\n"+string.Join("\n",changes.Take(15))+"\nCác thay đổi tay này sẽ được thay bằng cấu hình mới.\n";
+             if(System.Windows.MessageBox.Show(detail+"Áp dụng cập nhật?","Cập nhật lưới",System.Windows.MessageBoxButton.YesNo)!=System.Windows.MessageBoxResult.Yes)return;
+             ExecuteChange(doc,replace=>GridStore.Apply(doc.Database,CurrentLibrary(parameters!.Library!,false,parameters),parameters,EditingOrigin(editing,parameters),editing,true,replace));editor.Regen();return;
+            }
             RunGrid(doc, new ContentStore(plugin.Config.ContentRoot).Template("ISO_QUANGANH"), parameters);
             return;
         }
@@ -84,9 +103,14 @@ public sealed partial class RainmakerAxis
         editor.WriteMessage("\nRainmaker: Đã tạo trục " + label + ".");
     }
 
-    static AxisResolvedLibrary CurrentLibrary(AxisResolvedLibrary selected,bool single)
+    static void ExecuteChange(Autodesk.AutoCAD.ApplicationServices.Document doc,Action<bool> action)
+    {
+     bool replace=false;while(true){try{doc.Editor.Command("_.UNDO","_BEGIN");try{action(replace);}finally{doc.Editor.Command("_.UNDO","_END");}return;}catch(CadException e)when(e.Code=="DIM_CONFLICT"&&!replace){if(System.Windows.MessageBox.Show(e.Message+"\nCập nhật định nghĩa theo kho?","Xung đột tài nguyên dim",System.Windows.MessageBoxButton.YesNo)!=System.Windows.MessageBoxResult.Yes)return;replace=true;}}
+    }
+    static AxisResolvedLibrary CurrentLibrary(AxisResolvedLibrary selected,bool single,AxisGridParameters? parameters=null)
     {
         var current=new AxisLibrary(Plugin.Current!.Config.ContentRoot).Resolve(selected.Settings,single);
+        if(parameters!=null)new AxisLibrary(Plugin.Current!.Config.ContentRoot).ResolveConstruction(current,parameters);
         if(current.Snapshot!=selected.Snapshot)throw new CadException("RESOURCE_CHANGED","Thư viện hoặc cấu hình đã thay đổi. Mở lại bảng để kiểm tra trước khi vẽ.");
         return current;
     }

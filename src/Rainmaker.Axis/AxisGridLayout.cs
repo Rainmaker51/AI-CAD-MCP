@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace Rainmaker.Axis;
 
@@ -18,8 +19,11 @@ internal static class AxisGridLayout
             if (parts.Length > 2 || (parts.Length == 2 &&
                 (!int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out count) || count < 1)))
                 throw new ArgumentException("Nhập nhịp dạng 4000 5000 4000 hoặc 3*4000, đơn vị mm.");
-            if (!double.TryParse(parts[parts.Length - 1].Replace(',', '.'), NumberStyles.AllowDecimalPoint,
-                CultureInfo.InvariantCulture, out double distance) || double.IsNaN(distance) || double.IsInfinity(distance) || distance <= 0 || distance > 1000000)
+            string expression=parts[parts.Length-1].Replace(',','.');double distance=0;
+            if(expression.Length>512||!Regex.IsMatch(expression,@"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[+-](?:\d+(?:\.\d*)?|\.\d+))*$"))
+                throw new ArgumentException("Công thức nhịp không hợp lệ: "+token+". Ví dụ 3000+2000 hoặc 1000-500; không có dấu cách trong công thức.");
+            foreach(Match term in Regex.Matches(expression,@"[+-]?(?:\d+(?:\.\d*)?|\.\d+)")){if(!double.TryParse(term.Value,NumberStyles.AllowLeadingSign|NumberStyles.AllowDecimalPoint,CultureInfo.InvariantCulture,out var value)||double.IsInfinity(value))throw new ArgumentException("Giá trị trong công thức nhịp quá lớn.");distance+=value;}
+            if (double.IsNaN(distance) || double.IsInfinity(distance) || distance <= 0 || distance > 1000000)
                 throw new ArgumentException("Khoảng cách nhịp phải lớn hơn 0 và tối đa 1.000.000 mm.");
             if (count > 99 - bays.Count)
                 throw new ArgumentException("Mỗi phương tối đa 99 nhịp / 100 trục.");

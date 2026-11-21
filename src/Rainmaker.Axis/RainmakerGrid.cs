@@ -27,16 +27,19 @@ public sealed partial class RainmakerAxis
         if (yLabels == null) return;
         int? denominator = parameters?.Scale>0 ? parameters.Scale : ReadScale(doc);
         if (!denominator.HasValue) return;
-        var origin = editor.GetPoint("\nChọn giao điểm trục đầu tiên (góc dưới trái của lưới): ");
+        var origin = editor.GetPoint(parameters?.Envelope!=null?"\nChọn góc dưới trái PHỦ BÌ (trục tự lùi theo mép → tim): ":"\nChọn giao điểm trục đầu tiên (góc dưới trái của lưới): ");
         if (origin.Status != PromptStatus.OK) return;
         // Editor point input is in the current UCS. Geometry is stored in WCS.
-        var worldOrigin = origin.Value.TransformBy(editor.CurrentUserCoordinateSystem);
+        var worldOrigin = PlacementOrigin(parameters,origin.Value.TransformBy(editor.CurrentUserCoordinateSystem));
         if(parameters?.Library==null)throw new CadException("AXIS_SELECTION","Mở bảng Tạo trục để chọn thư viện trước khi vẽ.");
         parameters.XBays=xBays;parameters.YBays=yBays;parameters.XLabels=xLabels;parameters.YLabels=yLabels;parameters.Scale=denominator.Value;
-        WriteConfigured(doc.Database,CurrentLibrary(parameters.Library,false),parameters,worldOrigin);
+        ExecuteChange(doc,replace=>GridStore.Apply(doc.Database,CurrentLibrary(parameters.Library,false,parameters),parameters,worldOrigin,null,false,replace));
         editor.Regen();
         editor.WriteMessage($"\nRainmaker: Đã tạo {xLabels.Length} trục đứng, {yLabels.Length} trục ngang; dùng block/layer/Dim theo lựa chọn trong kho.");
     }
+
+    internal static Point3d PlacementOrigin(AxisGridParameters? p,Point3d selected){var e=p?.Envelope;if(e==null)return selected;e.Validate();return new(selected.X+e.Left,selected.Y+e.Bottom,selected.Z);}
+    internal static Point3d EditingOrigin(GridDefinition old,AxisGridParameters p){var a=old.Parameters.Envelope;var b=p.Envelope;return a!=null&&b!=null?new(old.X-a.Left+b.Left,old.Y-a.Bottom+b.Bottom,0):new(old.X,old.Y,0);}
 
     static double[]? ReadBays(Editor editor, string prompt, string defaults)
     {
