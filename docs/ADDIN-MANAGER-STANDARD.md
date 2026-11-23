@@ -1,6 +1,6 @@
 # Tiêu chuẩn add-in dùng với CAD Tool Manager
 
-Phiên bản tài liệu: 1.3. Ngày cập nhật: 20/11/2026.
+Phiên bản tài liệu: 1.4. Ngày cập nhật: 23/11/2026.
 
 ## 1. Mục đích và phạm vi
 
@@ -42,6 +42,16 @@ Ví dụ: add-in **Kiến trúc** có một nút **Kiến trúc** trên Ribbon. 
 - Kiểm tra giá trị trước khi chạy; thông báo lỗi phải nêu cách khắc phục. Khi đang xử lý, hiển thị trạng thái và ngăn thao tác lặp gây trùng đối tượng.
 - Đóng hoặc ẩn bảng không làm mất dữ liệu đã lưu. Quy định rõ thông số nào chỉ giữ trong phiên, thông số nào lưu lâu dài.
 - Nếu chưa mở DWG phù hợp, giải thích điều kiện cần và không chạy thao tác chỉnh sửa.
+
+### 4.1. Giao diện chuẩn theo Axis
+
+**Add-in tạo mới phải có giao diện cùng phong cách Axis, không chỉ cùng màu.** Đọc và tuân thủ [ADDIN-UI-STANDARD.md](ADDIN-UI-STANDARD.md): bảng màu dark, font, tab, ô nhập/chọn, nút, nhóm thu gọn, mật độ bố cục, vùng preview và trạng thái tương tác. Axis là mẫu giao diện tham chiếu; nội dung nghiệp vụ vẫn theo từng add-in.
+
+- Tái sử dụng theme `src/CAD.Bridge.AutoCAD/CadToolTheme.xaml` và đối chiếu các mẫu điều khiển của Axis; không chỉ đổi màu nền rồi để các control trắng mặc định.
+- Nếu công cụ có preview, thông số ở trái, preview ở phải, có thanh chia và nhớ tỷ lệ kéo theo máy. Mặc định 30/70 khi chưa có thiết lập; áp dụng chiều rộng tối thiểu phù hợp màn hình. Công cụ không cần preview dùng bố cục thông số/danh sách/chi tiết cùng phong cách, không tạo preview rỗng.
+- Các tab mặc định là Thông số và Thư viện khi công cụ có lựa chọn tài nguyên kho; các thao tác nằm trong bảng, giữ một nút Ribbon mở bảng.
+- Khi làm ở dự án khác, mang theo cả tài liệu giao diện và tài nguyên theme cần dùng. Việc tái sử dụng resource không thay yêu cầu kiểm tra tương thích Manager; không tự chép DLL của dự án khác vào gói.
+- Chuẩn này áp dụng cho add-in mới. Chỉ chuyển giao diện các add-in đã có khi được yêu cầu riêng.
 
 ## 5. Lệnh và giao tiếp với Manager
 
@@ -211,12 +221,13 @@ Trong AI-CAD-MCP, đặt gói đúng cấu trúc `_Development/<TênAddin>/versi
 - [ ] Tắt add-in không để lại sự kiện hoặc UI hoạt động ngoài ý muốn.
 - [ ] Kiểm thử trên AutoCAD 2021 thực tế với DWG thử, không dùng bản vẽ công trình thật làm fixture.
 - [ ] Bàn giao đủ nguồn, version, hash, hướng dẫn và bằng chứng kiểm thử; ghi rõ phần chưa kiểm tra.
+- [ ] Giao diện add-in mới đã đối chiếu với Axis và `ADDIN-UI-STANDARD.md`, gồm cả control, bố cục, trạng thái và khả năng co kéo.
 
 Kiểm thử Core Console có thể xác minh logic và thao tác Database. Bảng WPF, nút Ribbon, focus và thao tác modeless cần kiểm tra thêm trong GUI AutoCAD; không báo kiểm thử GUI đạt chỉ từ kết quả Core Console.
 
 ## 11. Dùng tài liệu trong cuộc trò chuyện hoặc dự án khác
 
-Sao chép file này vào `docs/ADDIN-MANAGER-STANDARD.md` của dự án mới hoặc đính kèm vào cuộc trò chuyện. Nếu dùng `AGENTS.md`, thêm đoạn sau vào file hiện có, giữ nguyên các quy tắc khác của dự án:
+Sao chép file này vào `docs/ADDIN-MANAGER-STANDARD.md` của dự án mới hoặc đính kèm vào cuộc trò chuyện. Mang theo `ADDIN-UI-STANDARD.md` và theme XAML tham chiếu để dự án nhận áp dụng được giao diện Axis. Nếu dùng `AGENTS.md`, thêm đoạn sau vào file hiện có, giữ nguyên các quy tắc khác của dự án:
 
 ```markdown
 ## Add-in AutoCAD dùng với CAD Tool Manager
@@ -225,6 +236,8 @@ Trước khi thiết kế, phát triển, sửa lỗi, build hoặc bàn giao ad
 `docs/ADDIN-MANAGER-STANDARD.md`.
 Mỗi add-in mới phải có bảng điều khiển riêng và đúng một nút Ribbon mở bảng đó.
 Manager quản lý tab/nhóm/nút; add-in không tự tạo Ribbon hoặc tự đăng ký nạp riêng.
+Giao diện add-in mới phải theo Axis, cả màu sắc, bố cục, control và tương tác;
+đọc docs/ADDIN-UI-STANDARD.md và tái sử dụng theme được chỉ rõ trong tài liệu.
 Kiểm tra bản giao tiếp Manager thực tế trước khi tích hợp; không tự giả định API.
 Giữ cấu hình Ribbon và dữ liệu người dùng khi cập nhật.
 Add-in/skill chọn tài nguyên trong chính bảng cấu hình của công cụ và lưu mã/loại

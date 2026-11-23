@@ -187,6 +187,8 @@ public static class LibraryFrames
         }
     }
     public static void PackGroup(Database db,Transaction tx,LibraryFrameNode group,List<LibrarySyncItem> items)
+        =>PackGroup(db,tx,group,items,items);
+    public static void PackGroup(Database db,Transaction tx,LibraryFrameNode group,List<LibrarySyncItem> items,List<LibrarySyncItem> frameItems)
     {
         var frame=Model(db,tx).OfType<BlockReference>().FirstOrDefault(b=>Info(b,tx)?.Id==group.Id)??throw new CadException("LIBRARY_FRAME","Chưa có khung; khởi tạo bố trí trước.");
         double left=frame.Position.X+800,top=frame.Position.Y-1600,x=left,y=top,rowHeight=0,available=Math.Max(17000,Math.Abs(frame.ScaleFactors.X)-1600);
@@ -202,7 +204,7 @@ public static class LibraryFrames
             foreach(var entity in glyph)Translate(entity,tx,new Vector3d(x-bounds.MinPoint.X,y-bounds.MaxPoint.Y,0));
             x+=width+450;rowHeight=Math.Max(rowHeight,height);
         }
-        Clear(db,tx);Build(db,tx,items);
+        Clear(db,tx);Build(db,tx,frameItems);
     }
     public static void AppendToGroup(Database db,Transaction tx,LibraryFrameNode group,List<LibrarySyncItem> items,List<LibrarySyncItem> additions)
     {

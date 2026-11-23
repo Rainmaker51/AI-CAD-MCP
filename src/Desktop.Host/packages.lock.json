@@ -11,7 +11,8 @@
         "type": "Project",
         "dependencies": {
           "CAD.Contracts": "[1.0.0, )",
-          "CAD.Geometry": "[1.0.0, )"
+          "CAD.Geometry": "[1.0.0, )",
+          "Rainmaker.Library.Core": "[1.0.0, )"
         }
       },
       "cad.contracts": {
@@ -24,6 +25,13 @@
         "type": "Project",
         "dependencies": {
           "CAD.Contracts": "[1.0.0, )"
+        }
+      },
+      "Rainmaker.Library.Core": {
+        "type": "Project",
+        "dependencies": {
+          "CAD.Contracts": "[1.0.0, )",
+          "CAD.Geometry": "[1.0.0, )"
         }
       }
     }

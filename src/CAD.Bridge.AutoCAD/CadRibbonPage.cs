@@ -30,7 +30,7 @@ internal sealed partial class CadToolPalette
             actions.Children.Add(Button("Xóa tab",()=>owner.Guard(Delete)));
             actions.Children.Add(Button("Làm mới",Refresh));panel.Children.Add(actions);
             panel.Children.Add(Label("Xóa tab không xóa DLL hay lệnh. Add-in và nút lệnh của tab đó được chuyển về tab mặc định Rainmaker. Tab mặc định luôn được giữ để mở Manager."));
-            panel.Children.Add(Label("Để đưa add-in vào tab: chọn add-in trong trang .NET Add-in → Tab mặc định của add-in → Lưu hồ sơ. Sau khi nạp, chọn Ghim toàn bộ lệnh hoặc ghim riêng từng lệnh."));
+            panel.Children.Add(Label("Đưa add-in vào tab: trang .NET Add-in → chọn tab đích → Chuyển toàn bộ nút. Dùng Chỉ ghim lệnh mở bảng để giữ một nút cho mỗi add-in. Có thể bỏ ghim hàng loạt và hoàn tác trong cùng trang."));
             Root=new ScrollViewer{Content=panel,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};Refresh();
         }
         internal void Refresh()=>owner.Guard(()=>

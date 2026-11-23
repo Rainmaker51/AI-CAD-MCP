@@ -15,25 +15,45 @@ using AcApp=Autodesk.AutoCAD.ApplicationServices.Core.Application;
 [assembly: CommandClass(typeof(Rainmaker.Library.Commands))]
 namespace Rainmaker.Library;
 
+internal sealed class LayoutCommandContext(string source,string kind,string group,bool useSelectedTarget)
+{
+    internal string Kind=>kind;
+    internal string Group=>group;
+    internal bool UseSelectedTarget=>useSelectedTarget;
+    internal void DemandSource(string document)
+    {
+        if(!string.Equals(Path.GetFullPath(source),Path.GetFullPath(document),StringComparison.OrdinalIgnoreCase))
+            throw new CadException("LIBRARY_SOURCE","Đã chuyển bản vẽ. Mở đúng DWG nguồn thư viện rồi chạy lại thao tác bố trí.");
+    }
+}
+
 public sealed class Commands
 {
+    internal static LayoutCommandContext? PendingLayout;
+    static bool useSelectedTarget;
     internal static string Kind="blocks";
     internal static string SelectedGroup="";
     internal static Document Document=>AcApp.DocumentManager.MdiActiveDocument??throw new CadException("DOCUMENT_REQUIRED","Mở DWG thư viện trước.");
     internal static bool IsLibrary(Database db,Transaction tx)=>LibraryFrames.Initialized(db,tx);
     internal static void Guard(Action<Document,Transaction> action,bool initialize=false)
     {
+        var context=PendingLayout;PendingLayout=null;
         try
         {
-            var doc=Document;using var locked=doc.LockDocument();using var tx=doc.Database.TransactionManager.StartTransaction();
+            var doc=Document;context?.DemandSource(doc.Name);
+            if(context!=null){Kind=context.Kind;SelectedGroup=context.Group;useSelectedTarget=context.UseSelectedTarget;}
+            using var locked=doc.LockDocument();using var tx=doc.Database.TransactionManager.StartTransaction();
             if(!initialize&&!IsLibrary(doc.Database,tx))throw new CadException("LIBRARY_DOCUMENT","DWG này chưa được quản lý như thư viện. Dùng Khởi tạo trên đúng file thư viện trước.");
             action(doc,tx);tx.Commit();doc.Editor.Regen();LibraryPlugin.Current?.Refresh();
         }
-        catch(Autodesk.AutoCAD.Runtime.Exception error){Document.Editor.WriteMessage("\nThư viện: "+error.Message);LibraryPlugin.Current?.Message(error.Message);}
+        catch(Autodesk.AutoCAD.Runtime.Exception error){AcApp.DocumentManager.MdiActiveDocument?.Editor.WriteMessage("\nThư viện: "+error.Message);LibraryPlugin.Current?.Message(error.Message);}
         catch(System.Exception error){AcApp.DocumentManager.MdiActiveDocument?.Editor.WriteMessage("\nThư viện: "+error.Message);LibraryPlugin.Current?.Message(error.Message);}
+        finally{useSelectedTarget=false;LibraryPlugin.Current?.CompleteLayout();}
     }
     [CommandMethod("QALIBRARY")]
     public void Open()=>LibraryPlugin.Current?.Show();
+    [CommandMethod("QALIBINSERT",CommandFlags.Modal)]
+    public void Insert()=>QaBlockInsert.Execute();
     [CommandMethod("QALIBBLOCK")]
     public void Blocks(){Kind="blocks";Open();}
     [CommandMethod("QALIBLAYER")]
@@ -45,7 +65,7 @@ public sealed class Commands
     [CommandMethod("QALIBDIM")]
     public void Dims(){Kind="dims";Open();}
     [CommandMethod("QALIBREFRESH")]
-    public void Refresh()=>LibraryPlugin.Current?.Refresh();
+    public void Refresh()=>LibraryPlugin.Current?.RefreshLibrary();
     [CommandMethod("QALIBZOOM",CommandFlags.Modal|CommandFlags.UsePickSet)]
     public void Zoom()=>Guard((doc,tx)=>
     {
@@ -64,7 +84,10 @@ public sealed class Commands
 
     static LibraryFrameNode ChooseGroup(Database db,Transaction tx,string title)
     {
-        var nodes=LibraryFrames.Nodes(db,tx);LibraryFrames.Ensure(nodes,Kind,"");var dialog=new GroupDialog(title,nodes.Where(n=>n.Kind==Kind).ToList(),SelectedGroup);
+        var nodes=LibraryFrames.Nodes(db,tx);LibraryFrames.Ensure(nodes,Kind,"");
+        var selected=nodes.SingleOrDefault(n=>n.Kind==Kind&&n.Id==SelectedGroup);
+        if(useSelectedTarget&&selected!=null)return selected;
+        var dialog=new GroupDialog(title,nodes.Where(n=>n.Kind==Kind).ToList(),SelectedGroup);
         if(AcApp.ShowModalWindow(dialog)!=true||dialog.Group==null)throw new CadException("CANCELLED","Đã hủy.");SelectedGroup=dialog.Group.Id;return dialog.Group;
     }
     internal static LibraryFrameNode PickFrame(Document doc,Transaction tx)

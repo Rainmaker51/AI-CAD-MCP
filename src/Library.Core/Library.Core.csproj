@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>netstandard2.0</TargetFramework><Version>1.6.0</Version><AssemblyName>Rainmaker.Library.Core</AssemblyName><DefineConstants>$(DefineConstants);QA_LIBRARY_CORE</DefineConstants></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../CAD.Contracts/CAD.Contracts.csproj" />
+    <ProjectReference Include="../CAD.Geometry/CAD.Geometry.csproj" />
+    <Compile Include="../Application/LibrarySyncService.Qa.cs" Link="LibraryRepository.Qa.cs" />
+    <Compile Include="../Application/LibrarySyncService.Live.cs" Link="LibraryRepository.Live.cs" />
+    <Compile Include="../Application/QaLibraryService.cs" Link="QaLibraryService.cs" />
+    <Compile Include="../Application/LibraryIdentifierService.cs" Link="LibraryIdentifierService.cs" />
+    <Compile Include="../Application/CadSourceFile.cs" Link="CadSourceFile.cs" />
+    <Compile Include="../CAD.Contracts/LibraryResourceCodes.cs" Link="LibraryResourceCodes.cs" />
+    <Compile Include="../Library.Shared/LibraryLiveProjection.cs" Link="LibraryLiveProjection.cs" />
+    <Compile Include="../Library.Shared/LibraryLiveSignature.cs" Link="LibraryLiveSignature.cs" />
+  </ItemGroup>
+</Project>

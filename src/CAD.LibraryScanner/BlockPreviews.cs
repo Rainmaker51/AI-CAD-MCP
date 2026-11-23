@@ -31,8 +31,8 @@ public sealed class BlockPreviews {
   bitmap.Save(output,ImageFormat.Png);
  }
  [CommandMethod("AICADBLOCKPREVIEWS",CommandFlags.Modal)]
- public void Run(){
-  string root=Environment.GetEnvironmentVariable("AICAD_LIBRARY_JOB")??"";
+ public void Run()=>Generate(Environment.GetEnvironmentVariable("AICAD_LIBRARY_JOB")??"");
+ public static void Generate(string root){
   if(!Path.IsPathRooted(root)||!File.Exists(Path.Combine(root,".aicad-library-job")))return;
   var results=new JObject();
   try{

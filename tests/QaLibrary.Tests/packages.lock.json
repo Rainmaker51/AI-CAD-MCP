@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0-windows7.0": {
+      "Newtonsoft.Json": {
+        "type": "Transitive",
+        "resolved": "13.0.3",
+        "contentHash": "HrC5BXdl00IP9zeV+0Z848QWPAoCr9P3bDEZguI+gkLcBKAOxix/tLEAAHC+UvDNPv4a2d18lOReHMOagPa+zQ=="
+      },
+      "application": {
+        "type": "Project",
+        "dependencies": {
+          "CAD.Contracts": "[1.0.0, )",
+          "CAD.Geometry": "[1.0.0, )",
+          "Rainmaker.Library.Core": "[1.0.0, )"
+        }
+      },
+      "cad.contracts": {
+        "type": "Project",
+        "dependencies": {
+          "Newtonsoft.Json": "[13.0.3, )"
+        }
+      },
+      "cad.geometry": {
+        "type": "Project",
+        "dependencies": {
+          "CAD.Contracts": "[1.0.0, )"
+        }
+      },
+      "Rainmaker.Library.Core": {
+        "type": "Project",
+        "dependencies": {
+          "CAD.Contracts": "[1.0.0, )",
+          "CAD.Geometry": "[1.0.0, )"
+        }
+      }
+    }
+  }
+}

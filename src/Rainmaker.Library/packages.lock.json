@@ -28,10 +28,23 @@
           "Newtonsoft.Json": "[13.0.3, )"
         }
       },
+      "cad.geometry": {
+        "type": "Project",
+        "dependencies": {
+          "CAD.Contracts": "[1.0.0, )"
+        }
+      },
       "cad.libraryscanner": {
         "type": "Project",
         "dependencies": {
           "CAD.Contracts": "[1.0.0, )"
+        }
+      },
+      "Rainmaker.Library.Core": {
+        "type": "Project",
+        "dependencies": {
+          "CAD.Contracts": "[1.0.0, )",
+          "CAD.Geometry": "[1.0.0, )"
         }
       }
     }

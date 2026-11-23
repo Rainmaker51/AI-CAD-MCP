@@ -4,7 +4,12 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 
+#if QA_LIBRARY_CORE
+using AICad.Contracts;
+namespace AICad.Application;
+#else
 namespace AICad.Contracts;
+#endif
 
 public sealed class LibraryResourceCode
 {

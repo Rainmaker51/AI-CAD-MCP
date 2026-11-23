@@ -1,0 +1,172 @@
+using AICad.Application;
+using AICad.Contracts;
+using Newtonsoft.Json.Linq;
+using System.Reflection;
+
+if(args.Length==5&&args[0]=="--audit-warehouse")
+{
+    var auditConfig=new InstallConfig{ContentRoot=Path.GetFullPath(args[1]),DataRoot=Path.GetFullPath(args[2])};
+    string warehouse=WarehousePaths.Resolve(auditConfig.ContentRoot),catalogFolder=Path.Combine(warehouse,"Catalog");
+    if(File.Exists(Path.Combine(catalogFolder,"sync","pending.json")))throw new Exception("Pending transaction: do not audit or recover implicitly");
+    var paths=Directory.GetFiles(catalogFolder,"*.json",SearchOption.AllDirectories).Concat(new[]{Path.Combine(warehouse,"Versions","templates","ISO_QUANGANH","active.json"),Path.Combine(warehouse,"Styles","ISO_QUANGANH","active.json"),Path.Combine(warehouse,"Hatches","ISO_QUANGANH","active.json")}).Where(File.Exists).Distinct().OrderBy(p=>p).ToArray();
+    string Digest()=>Json.Hash(paths.Select(p=>new{path=Path.GetRelativePath(warehouse,p),hash=Json.FileHash(p)}).ToArray());
+    string before=Digest();var repository=new LibraryRepository(auditConfig);var service=new QaLibraryService(auditConfig,repository,new LibraryIdentifierService(auditConfig,repository));
+    var capture=repository.LiveCapture(args[3]);var counts=new JArray();
+    foreach(string kind in LibrarySyncRules.Kinds)
+    {
+        var published=JObject.FromObject(service.Read(kind));var auditLive=service.ReadLive(kind,capture);
+        counts.Add(new JObject{["kind"]=kind,["published"]=published["items"]!.Count(),["groups"]=published["groups"]!.Count(),["live"]=auditLive["items"]!.Count(),["publishedPreserved"]=published["items"]!.OfType<JObject>().All(p=>auditLive["items"]!.OfType<JObject>().Any(l=>l.Value<string>("resourceId")==p.Value<string>("resourceId")))});
+        if(kind=="blocks")
+        {
+            var lamp=auditLive["items"]!.OfType<JObject>().SingleOrDefault(r=>r.Value<string>("resourceId")=="QA_DenNgu");
+            Console.WriteLine("QA_DenNgu status: "+lamp?.Value<string>("liveStatus"));
+            if(lamp!=null&&lamp.Value<string>("liveStatus") is not ("DEFINITION_ONLY" or "MISSING"))throw new Exception("Deleted lamp unexpectedly active");
+        }
+    }
+    string after=Digest();if(after!=before||counts.OfType<JObject>().Any(c=>!c.Value<bool>("publishedPreserved")))throw new Exception("Catalog audit changed or lost data");
+    Json.Atomic(args[4],new{passed=true,readOnly=true,catalogUnchanged=true,digest=after,kinds=counts});Console.WriteLine(counts);return;
+}
+
+if(args.Length>1&&(args[0]=="--verify-snapshot"||args[0]=="--verify-native"))
+{
+    var signatureType=typeof(QaLibraryService).Assembly.GetType("AICad.Library.LibraryLiveSignature",true)!;
+    foreach(string file in args.Skip(1))
+    {
+        var snapshot=Json.Read<JObject>(File.ReadAllText(file));var native=snapshot["items"]!.ToObject<List<LibrarySyncItem>>()!;
+        string method=args[0]=="--verify-native"?"Compute":"Framework150";
+        string legacy=(string)signatureType.GetMethod(method,BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,new object[]{native,snapshot["presence"]!})!;
+        bool valid=legacy==snapshot.Value<string>("signature");Console.WriteLine(Path.GetFileName(Path.GetDirectoryName(file))+": "+method+" signature match="+valid);
+        if(!valid)throw new Exception("Legacy cross-runtime snapshot mismatch");
+    }
+    return;
+}
+
+void Check(bool value, string message) { if (!value) throw new Exception(message); }
+async Task Reject(Func<Task> work, string code) { try { await work(); } catch (CadException e) when (e.Code == code) { return; } throw new Exception("Expected " + code); }
+string root = Path.Combine(Path.GetTempPath(), "qa-library-tests-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(root);
+var config = new InstallConfig { ContentRoot = root, DataRoot = Path.Combine(root, "data") };
+Directory.CreateDirectory(config.DataRoot);
+var store = new ContentStore(root);
+string source = Path.Combine(root, "CAD", "Originals", CadSourceFile.BaseLibraryName);
+Directory.CreateDirectory(Path.GetDirectoryName(source)!); File.WriteAllText(source, "fixture saved DWG bytes");
+string sourceHash = Json.FileHash(source); string assets = WarehousePaths.Folder(root, "content-assets"); Directory.CreateDirectory(assets); File.Copy(source, Path.Combine(assets, sourceHash + ".dwg"));
+var layer = new LibrarySyncItem { Id = Guid.NewGuid().ToString("N"), Kind = "layers", Name = "QA_TEST", Values = JObject.FromObject(new { color = 7, lineWeight = 25, lineType = "Continuous", plottable = true }) };
+var block = new LibrarySyncItem { Id = Guid.NewGuid().ToString("N"), Kind = "blocks", Name = "QA_BLOCK", Values = new() };
+var text = new LibrarySyncItem { Id = Guid.NewGuid().ToString("N"), Kind = "texts", Name = "QA_TEXT", Handle = "A", Values = JObject.FromObject(new { font = "tahoma.ttf", height = 0, widthFactor = 1.0 }) };
+var dim = new LibrarySyncItem { Id = Guid.NewGuid().ToString("N"), Kind = "dims", Name = "QA_DIM", Handle = "B", Values = JObject.FromObject(new { textStyle = "QA_TEXT", textHeight = 2.5, scale = 1 }) };
+var hatch = new LibrarySyncItem { Id = Guid.NewGuid().ToString("N"), Kind = "hatches", Name = "SOLID", Handle = "C", Values = JObject.FromObject(new { pattern = "SOLID", type = "PreDefined", scale = 1, angle = 0, layer = "QA_TEST", color = 256, spacing = 1, doublePattern = false }) };
+var template = new TemplateProfile { Id = "ISO_QUANGANH", Version = "1.0.0", Layers = new() { new() { Name = layer.Name, Color = 7, Appearance = new() { LineWeight = 25, LineType = "Continuous", Plottable = true } } }, Blocks = new() { new() { Id = "QA_BLOCK", NativeSource = new() { BlockName = block.Name, FileHash = sourceHash, Min = new(0,0), Max = new(1000,1000) } } } };
+store.Publish("templates", template.Id, template.Version, template);
+void Catalog(string folder, object content) { string dir = Path.Combine(root, folder, "ISO_QUANGANH", "1.0.0"); Directory.CreateDirectory(dir); Json.Atomic(Path.Combine(dir, "catalog.json"), content); Json.Atomic(Path.Combine(root, folder, "ISO_QUANGANH", "active.json"), new { version = "1.0.0", checksum = Json.FileHash(Path.Combine(dir, "catalog.json")) }); }
+JObject Entry(LibrarySyncItem i) { var value = (JObject)i.Values.DeepClone(); value["id"] = i.Kind == "hatches" ? i.Id + new string('a', 32) : Json.Hash(i.Name); value["name"] = i.Name; value["handle"] = i.Handle; return value; }
+Catalog("Styles", new { version = "1.0.0", sourceHash, sourceName = Path.GetFileName(source), texts = new[] { Entry(text) }, dims = new[] { Entry(dim) } });
+Catalog("Hatches", new { version = "1.0.0", sourceHash, sourceName = Path.GetFileName(source), items = new[] { Entry(hatch) } });
+var items = new List<LibrarySyncItem> { layer, block, text, dim, hatch };
+var initial = new LibrarySyncState { Items = items.Select(i => i.Copy()).ToList() };
+foreach (var i in items) initial.Baselines[i.Id] = new() { App = i.Signature(), Cad = i.Signature(), AppContent = i.ContentSignature(), CadContent = i.ContentSignature(), AppGroup = "", CadGroup = "" };
+string stateFile = Path.Combine(root, "Catalog", "sync", "state.json"); Json.Atomic(stateFile, initial);
+var sync = new LibrarySyncService(config); var qa = new QaLibraryService(config, sync, new LibraryIdentifierService(config, sync));
+var metadata = new LibraryCatalog(root);
+foreach (string kind in LibrarySyncRules.Kinds)
+{
+    var view = JObject.FromObject(qa.Read(kind)); var row = view["items"]!.Single();
+    Check(row.Value<string>("id") != "" && row.Value<string>("code") != "", "Missing stable ID/code: " + kind);
+    Check(view.Value<string>("source") == source, "Wrong source for " + kind);
+    var group = JObject.FromObject(qa.Group(JObject.FromObject(new { kind, name = "Parent", parentId = "" })));
+    var child = JObject.FromObject(qa.Group(JObject.FromObject(new { kind, name = "Child", parentId = group.Value<string>("Id") })));
+    var request = JObject.FromObject(new { kind, metadataId = row.Value<string>("metadataId"), catalogRevision = view.Value<int>("revision"), revision = 0, name = "Display " + kind, purpose = "Fixture purpose", notes = "Fixture notes", groupId = child.Value<string>("Id"), reviewed = true, action = "update" });
+    qa.Manage(request);
+    await Reject(() => { qa.Manage(request); return Task.CompletedTask; }, "RESOURCE_CHANGED");
+    var updated = JObject.FromObject(qa.Read(kind))["items"]!.Single();
+    Check(updated.Value<string>("id") == row.Value<string>("id") && updated.Value<string>("code") == row.Value<string>("code"), "Management rename changed identity");
+    Check(updated["management"]!.Value<bool>("Reviewed"), "Review flag lost");
+    qa.Group(JObject.FromObject(new { kind, id = group.Value<string>("Id"), action = "remove" }));
+    Check(metadata.Groups(kind).Single().ParentId == "", "Deleting parent lost subgroup");
+}
+// Inspection artifacts are private test fixtures; no Core process or user DWG is touched.
+string AppHash() => (string)typeof(LibrarySyncService).GetMethod("AppHash", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(sync, null)!;
+string Review(List<LibrarySyncItem> native)
+{
+    string id = Guid.NewGuid().ToString("N"), job = Path.Combine(config.DataRoot, "library-sync", id); Directory.CreateDirectory(job); File.Copy(source, Path.Combine(job, "source.dwg")); Json.Atomic(Path.Combine(job, "review.json"), new { sourceHash = Json.FileHash(source), appHash = AppHash(), native }); return id;
+}
+var current = JObject.FromObject(sync.State())["items"]!.ToObject<List<LibrarySyncItem>>()!;
+var changed = current.Select(i => i.Copy()).ToList(); changed.Single(i => i.Id == layer.Id).Values["color"] = 3; changed.Single(i => i.Id == text.Id).Name = "QA_TEXT_RENAMED";
+string reviewId = Review(changed);
+var choices = new JObject { [layer.Id] = "cad" };
+var result = JObject.FromObject(await sync.ApproveCad(new() { ["id"] = reviewId, ["choices"] = choices }, CancellationToken.None));
+Check(!result.Value<bool>("sourceUpdated") && Json.FileHash(source) == sourceHash, "Approval rewrote source DWG");
+Check(store.Template("ISO_QUANGANH").Layers.Single().Color == 3, "Selected CAD edit not published");
+Check(new StyleLibraryService(config).Read("texts")["items"]!.Single().Value<string>("name") == "QA_TEXT", "Unselected change leaked into publication");
+await Reject(async () => await sync.ApproveCad(new() { ["id"] = reviewId, ["choices"] = choices }, CancellationToken.None), "RESOURCE_CHANGED");
+// Stable identity follows a native rename; metadata moves from the old key to new key.
+current = JObject.FromObject(sync.State())["items"]!.ToObject<List<LibrarySyncItem>>()!;
+var oldCode = JObject.FromObject(qa.Read("texts"))["items"]!.Single().Value<string>("code");
+changed = current.Select(i => i.Copy()).ToList(); changed.Single(i => i.Id == text.Id).Name = "QA_TEXT_RENAMED";
+reviewId = Review(changed); await sync.ApproveCad(new() { ["id"] = reviewId, ["choices"] = new JObject { [text.Id] = "cad" } }, CancellationToken.None);
+var renamed = JObject.FromObject(qa.Read("texts"))["items"]!.Single(); Check(renamed.Value<string>("code") == oldCode, "Native rename changed stable code");
+Check(new StyleLibraryService(config).Read("dims")["items"]!.Single().Value<string>("textStyle")=="QA_TEXT_RENAMED","Dim reference did not follow the renamed Text style");
+current=JObject.FromObject(sync.State())["items"]!.ToObject<List<LibrarySyncItem>>()!;changed=current.Select(i=>i.Copy()).ToList();changed.Single(i=>i.Id==hatch.Id).Values["scale"]=300;
+string templateVersionBefore=store.Template("ISO_QUANGANH").Version;
+reviewId=Review(changed);await sync.ApproveCad(new(){["id"]=reviewId,["choices"]=new JObject{[hatch.Id]="cad"}},CancellationToken.None);
+Check(new HatchLibraryService(config).Read()["items"]!.Single().Value<double>("scale")==300,"Hatch scale was not published");
+Check(store.Template("ISO_QUANGANH").Version==templateVersionBefore,"Hatch-only approval created a duplicate Template version");
+// A stale scan cannot publish after another CAD save.
+reviewId = Review(changed); File.AppendAllText(source, "saved again");
+await Reject(async () => await sync.ApproveCad(new() { ["id"] = reviewId, ["choices"] = choices }, CancellationToken.None), "RESOURCE_CHANGED");
+Check(!LibraryEditAuthority.Active(config), "Authority activated merely by reading"); qa.Activate(); Check(LibraryEditAuthority.Active(config), "Authority activation failed");
+Check(LibraryEditAuthority.IsLibraryWrite("/api/library-sync/apply", "") && !LibraryEditAuthority.IsLibraryWrite("/api/qa-library/approve", "") && !LibraryEditAuthority.IsLibraryWrite("/api/library-management/update", "skills"), "Authority routing unsafe");
+// Live CAD is a projection, never an implicit publication or a source write.
+var legacyTemplate=store.Template("ISO_QUANGANH");legacyTemplate.Blocks.Single().Usage=new BlockUsage{Role="native",Reviewed=true};legacyTemplate.Version="1.9.0";store.Publish("templates",legacyTemplate.Id,legacyTemplate.Version,legacyTemplate);
+current=JObject.FromObject(sync.State())["items"]!.ToObject<List<LibrarySyncItem>>()!;
+JObject Capture(List<LibrarySyncItem> native,JObject presence,string mode="OPEN_DOCUMENT")
+{
+    string id=Guid.NewGuid().ToString("N"),folder=Path.Combine(config.DataRoot,"library-sync",id);Directory.CreateDirectory(folder);File.Copy(source,Path.Combine(folder,"source.dwg"));File.WriteAllText(Path.Combine(folder,".qa-native-snapshot"),"test fixture");
+    string signature=Json.Hash(new{items=native.OrderBy(i=>i.Id).Select(i=>new{i.Id,i.Kind,i.Name,i.Group,i.Purpose,i.Notes,i.Values}),presence=new JObject(presence.Properties().OrderBy(p=>p.Name,StringComparer.Ordinal).Select(p=>new JProperty(p.Name,p.Value.DeepClone())))});
+    var c=new JObject{["id"]=id,["source"]=source,["readMode"]=mode,["items"]=JArray.FromObject(native),["presence"]=presence,["signature"]=signature,["snapshotHash"]=Json.FileHash(source)};Json.Atomic(Path.Combine(folder,"snapshot.json"),c);return c;
+}
+var presence=new JObject{[block.Id]=new JObject{["samplePresent"]=false,["definitionPresent"]=true}};
+changed=current.Select(i=>i.Copy()).ToList();changed.Single(i=>i.Id==layer.Id).Values["color"]=4;
+var live=Capture(changed,presence);var registered=sync.RegisterLive(live.Value<string>("id")!);
+Check(registered["differences"]!.Single(d=>d.Value<string>("Id")==block.Id).Value<string>("Status")=="CAD_SAMPLE_MISSING","Missing block sample mistaken for an active sample");
+var projected=qa.ReadLive("blocks",sync.LiveCapture(live.Value<string>("id")!));
+Check(projected["items"]!.Single().Value<string>("liveStatus")=="DEFINITION_ONLY"&&projected["items"]!.Single().Value<bool>("useReviewed"),"Legacy usage review or missing-sample status lost");
+// Multiple usage presets may share the same native definition and public ID.
+// They remain separate rows; a null Usage record must not abort the entire view.
+var presetView=JObject.FromObject(qa.Read("blocks"));var firstPreset=(JObject)presetView["items"]![0]!;firstPreset["profile"]!["Usage"]=JValue.CreateNull();
+var secondPreset=(JObject)firstPreset.DeepClone();secondPreset["resourceId"]="SECOND_PRESET";secondPreset["metadataId"]="second-preset";secondPreset["management"]!["GroupId"]="second-group";secondPreset["profile"]!["Usage"]=new JObject{["Reviewed"]=true,["Values"]=new JObject{["Visibility"]="Wardrobe"}};
+((JArray)presetView["items"]!).Add(secondPreset);
+var projectionType=typeof(QaLibraryService).Assembly.GetType("AICad.Library.LibraryLiveProjection",true)!;
+var presetRows=((JObject)projectionType.GetMethod("Build",BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,new object[]{presetView,live})!)["items"]!.OfType<JObject>().ToList();
+Check(presetRows.Count==2&&presetRows.Select(r=>r.Value<string>("resourceId")).Distinct().Count()==2,"Shared-definition presets were lost or merged");
+Check(!presetRows[0].Value<bool>("useReviewed")&&presetRows[1].Value<bool>("useReviewed")&&presetRows[1]["management"]!.Value<string>("GroupId")=="second-group","Preset usage, review or group was overwritten");
+var projectedLayer=qa.ReadLive("layers",live);Check(projectedLayer["items"]!.Single()["profile"]!.Value<int>("color")==4&&store.Template("ISO_QUANGANH").Layers.Single().Color==3,"Live change was not shown or was published implicitly");
+var missing=qa.ReadLive("blocks",Capture(changed.Where(i=>i.Id!=block.Id).ToList(),new()));Check(missing["items"]!.Single().Value<string>("liveStatus")=="MISSING","Absent definition not distinguished");
+var fresh=new LibrarySyncItem{Id=Guid.NewGuid().ToString("N"),Kind="blocks",Name="NEW_BLOCK",Values=new()};
+var added=qa.ReadLive("blocks",Capture(changed.Append(fresh).ToList(),presence));Check(added["items"]!.Single(i=>i.Value<string>("id")==fresh.Id).Value<bool>("published")==false,"New CAD block falsely marked published");
+var savedLive=Capture(changed,presence,"SAVED_FILE");var prepared=JObject.FromObject(sync.PrepareLiveApproval(new(){["reviewId"]=live["id"]!.DeepClone(),["savedId"]=savedLive["id"]!.DeepClone()}));
+Check(prepared.Value<string>("id")==savedLive.Value<string>("id"),"Saved equivalent snapshot rejected");
+string? legacyFile=Environment.GetEnvironmentVariable("QA_LEGACY_CAPTURE");
+if(!string.IsNullOrEmpty(legacyFile))
+{
+    // Replay the numeric payload that failed in Framework 1.5.0, only in this
+    // disposable fixture. No actual source DWG or warehouse metadata is written.
+    var legacy=Json.Read<JObject>(File.ReadAllText(legacyFile));string id=Guid.NewGuid().ToString("N"),folder=Path.Combine(config.DataRoot,"library-sync",id);Directory.CreateDirectory(folder);
+    legacy["id"]=id;legacy["source"]=source;legacy["snapshotHash"]=Json.FileHash(source);File.Copy(source,Path.Combine(folder,"source.dwg"));File.WriteAllText(Path.Combine(folder,".qa-native-snapshot"),"Legacy regression fixture");Json.Atomic(Path.Combine(folder,"snapshot.json"),legacy);
+    var replay=sync.LiveCapture(id);Check(replay["items"]!.Count()==legacy["items"]!.Count(),"Legacy native snapshot rejected");
+    var replayReview=sync.RegisterLive(id);Check(replayReview["differences"] is JArray,"Legacy native live view did not register");
+    Check(qa.ReadLive("blocks",replay)["groups"]!.Count()==metadata.Groups("blocks").Count,"Legacy live replay lost catalog groups");
+    Console.WriteLine("PASS: original failing Framework 1.5.0 snapshot replayed without a warehouse write");
+}
+var newer=changed.Select(i=>i.Copy()).ToList();newer.Single(i=>i.Id==layer.Id).Values["color"]=5;var stale=Capture(newer,presence,"SAVED_FILE");
+await Reject(()=>{sync.PrepareLiveApproval(new(){["reviewId"]=live["id"]!.DeepClone(),["savedId"]=stale["id"]!.DeepClone()});return Task.CompletedTask;},"RESOURCE_CHANGED");
+// Installed consumers block removal; another tool's unselected settings do not.
+Json.Atomic(Path.Combine(root,"Tools","catalog.json"),new CadToolIndex{StorageVersion=2,Items=new(){new(){Id="rainmaker-axis",Name="Axis fixture",Kind="dotnet",Enabled=true}}});
+string settingsFile=Path.Combine(root,"Catalog","addin-settings","rainmaker-axis.json");Json.Atomic(settingsFile,new{BayDimId=dim.Id});
+var noDim=current.Where(i=>i.Id!=dim.Id).ToList();string removal=Review(noDim);
+await Reject(async()=>await sync.ApproveCad(new(){["id"]=removal,["choices"]=new JObject{[dim.Id]="remove"}},CancellationToken.None),"DEPENDENCY_IMPACT");
+File.Delete(settingsFile);
+Console.WriteLine("PASS: live CAD projection, legacy usage review, missing sample/definition, new resource, explicit saved publication guard, stale geometry rejection, active add-in dependency guard");
+Console.WriteLine("PASS: five kinds, source paths, stable codes, hierarchical groups, metadata review and conflict guards; selected CAD publication without source overwrite; native rename; stale scan rejection; explicit QA authority");
+// Remove only this test's uniquely owned sandbox.
+if(args.Contains("--keep"))Console.WriteLine("FIXTURE="+root);else Directory.Delete(root, true);

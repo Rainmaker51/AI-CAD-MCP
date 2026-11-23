@@ -6,6 +6,7 @@ using AICad.LibraryScanner;
 using AICad.Contracts;
 using System.Collections.Generic;
 using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.Windows;
@@ -17,24 +18,27 @@ namespace Rainmaker.Library;
 public sealed class LibraryPlugin:IExtensionApplication,ICadManagedAddin
 {
     internal static LibraryPlugin? Current;
-    PaletteSet? palette;LibraryView? view;FrameGrips? grips;string document="";Action<string>? managedDispatch;
+    QaBrowserWindow? browser;FrameGrips? grips;string document="";Action<string>? managedDispatch;
+    bool layoutRunning,restoreBrowser;
+    Document? layoutDocument;string layoutCommand="";
     public IReadOnlyList<CadRibbonPin> ManagedCommands=>new[]{
         Pin("QALIBBLOCK","Block","Loại thư viện",0),Pin("QALIBLAYER","Layer","Loại thư viện",1),Pin("QALIBHATCH","Hatch","Loại thư viện",2),Pin("QALIBTEXT","Text","Loại thư viện",3),Pin("QALIBDIM","Dim","Loại thư viện",4),
         Pin("QALIBADOPT","Nhận vào nhóm","Mẫu thư viện",0),Pin("QALIBASSIGN","Chuyển nhóm","Mẫu thư viện",1),Pin("QALIBPACK","Xếp gọn nhóm","Mẫu thư viện",2),Pin("QALIBMOVEGROUP","Di chuyển cả nhóm","Mẫu thư viện",3),
         Pin("QALIBRESIZE","Chỉnh khung","Khung và nhóm",0),Pin("QALIBNEWGROUP","Tạo nhóm","Khung và nhóm",1),Pin("QALIBRENAME","Đổi tên nhóm","Khung và nhóm",2),Pin("QALIBDELETEGROUP","Xóa nhóm rỗng","Khung và nhóm",3),
-        Pin("QALIBRARY","Thư viện QA","Quản lý thư viện",0),Pin("QALIBZOOM","Đến nhóm","Quản lý thư viện",1),Pin("QALIBREFRESH","Làm mới","Quản lý thư viện",2),Pin("QALIBINIT","Khởi tạo DWG thư viện","Quản lý thư viện",3)
+        Pin("QALIBRARY","Thư viện QA","Quản lý thư viện",0),Pin("QALIBZOOM","Đến nhóm","Quản lý thư viện",1),Pin("QALIBREFRESH","Làm mới","Quản lý thư viện",2),Pin("QALIBINIT","Khởi tạo DWG thư viện","Quản lý thư viện",3),Pin("QALIBINSERT","Chèn block","Thư viện QA",4)
     };
     static CadRibbonPin Pin(string command,string label,string group,int order)=>new(){Command=command,Label=label,Group=group,Order=order,Icon="Công cụ",Description=label+" · Thư viện CAD"};
     public void Initialize()=>Start(null);
     public void InitializeManaged(Action<string> dispatch)=>Start(dispatch);
-    void Start(Action<string>? dispatch){Current=this;managedDispatch=dispatch;grips=new FrameGrips();Overrule.AddOverrule(RXObject.GetClass(typeof(BlockReference)),grips,false);Overrule.Overruling=true;AcApp.Idle+=Idle;}
-    public void Terminate(){AcApp.Idle-=Idle;if(grips!=null)Overrule.RemoveOverrule(RXObject.GetClass(typeof(BlockReference)),grips);if(System.Diagnostics.Process.GetCurrentProcess().ProcessName.Equals("acad",StringComparison.OrdinalIgnoreCase))DisposePalette();managedDispatch=null;if(Current==this)Current=null;}
-    // CAD Core has no PaletteSet host. Keep GUI type resolution outside its lifecycle path.
+    void Start(Action<string>? dispatch){Current=this;managedDispatch=dispatch;grips=new FrameGrips();Overrule.AddOverrule(RXObject.GetClass(typeof(BlockReference)),grips,false);Overrule.Overruling=true;AcApp.Idle+=Idle;AcApp.DocumentManager.DocumentToBeDestroyed+=DocumentClosing;}
+    public void Terminate(){AcApp.Idle-=Idle;AcApp.DocumentManager.DocumentToBeDestroyed-=DocumentClosing;DetachLayoutEvents();Commands.PendingLayout=null;QaBlockInsert.Pending=null;if(grips!=null)Overrule.RemoveOverrule(RXObject.GetClass(typeof(BlockReference)),grips);if(System.Diagnostics.Process.GetCurrentProcess().ProcessName.Equals("acad",StringComparison.OrdinalIgnoreCase))DisposeBrowser();managedDispatch=null;if(Current==this)Current=null;}
+    // CAD Core has no GUI host. Keep WPF resolution outside its lifecycle path.
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-    void DisposePalette(){palette?.Dispose();palette=null;view=null;}
+    void DisposeBrowser(){browser?.Close();browser=null;layoutRunning=restoreBrowser=false;Commands.PendingLayout=null;}
     void Idle(object? sender,EventArgs e)
     {
-        string name=AcApp.DocumentManager.MdiActiveDocument?.Name??"";if(palette?.Visible==true&&name!=document){document=name;Refresh();}
+        if(restoreBrowser&&(AcApp.DocumentManager.MdiActiveDocument==null||Convert.ToInt32(AcApp.GetSystemVariable("CMDACTIVE"))==0)){restoreBrowser=false;layoutRunning=false;DetachLayoutEvents();browser?.FinishCadCommand();}
+        string name=AcApp.DocumentManager.MdiActiveDocument?.Name??"";if(browser?.IsVisible==true&&name!=document){document=name;Refresh();}
     }
     internal static void Send(string command)
     {
@@ -43,19 +47,34 @@ public sealed class LibraryPlugin:IExtensionApplication,ICadManagedAddin
     }
     internal void Show()
     {
-        if(palette==null){view=new LibraryView();palette=new PaletteSet("Thư viện QA",new Guid("2c450968-2b64-4f9e-9cce-799a57879ab3")){Style=PaletteSetStyles.ShowAutoHideButton|PaletteSetStyles.ShowCloseButton|PaletteSetStyles.ShowPropertiesMenu,MinimumSize=new Size(350,400),Size=new Size(440,760),DockEnabled=DockSides.Left|DockSides.Right};palette.AddVisual("Thư viện QA",view);}
-        palette.Visible=true;Refresh();
+        if(layoutRunning)return;
+        if(browser==null){browser=new QaBrowserWindow();browser.Closed+=(_,_)=>browser=null;AcApp.ShowModelessWindow(browser);}
+        else{browser.Show();browser.Activate();browser.SelectKind(Commands.Kind);browser.ReloadFromCad();}
     }
+    internal void BeginLayout(string command,LayoutCommandContext context)
+    {
+        if(layoutRunning)throw new InvalidOperationException("Hoàn tất hoặc nhấn Esc để hủy thao tác CAD đang chạy.");
+        layoutDocument=Commands.Document;layoutCommand=command;
+        layoutDocument.CommandEnded+=CommandFinished;layoutDocument.CommandCancelled+=CommandFinished;layoutDocument.CommandFailed+=CommandFinished;
+        layoutRunning=true;Commands.PendingLayout=context;browser?.Hide();
+        try{Send(command);}catch{Commands.PendingLayout=null;layoutRunning=false;DetachLayoutEvents();browser?.FinishCadCommand();throw;}
+    }
+    internal void CompleteLayout(){if(layoutRunning)restoreBrowser=true;}
+    void CommandFinished(object sender,CommandEventArgs args)
+    {
+        if(!layoutRunning||!new[]{layoutCommand,"AICADTOOLRUN","AICADTOOLSESSION"}.Contains(args.GlobalCommandName,StringComparer.OrdinalIgnoreCase))return;
+        if(Commands.PendingLayout!=null){Commands.PendingLayout=null;Message("Lệnh CAD đã kết thúc trước khi thực thi. Xem thông báo trong dòng lệnh rồi thử lại.");}
+        CompleteLayout();
+    }
+    void DocumentClosing(object sender,DocumentCollectionEventArgs args){if(layoutRunning&&args.Document==layoutDocument){Commands.PendingLayout=null;Message("DWG đã đóng. Mở lại DWG nguồn để tiếp tục bố trí.");CompleteLayout();DetachLayoutEvents();}}
+    void DetachLayoutEvents(){if(layoutDocument!=null){layoutDocument.CommandEnded-=CommandFinished;layoutDocument.CommandCancelled-=CommandFinished;layoutDocument.CommandFailed-=CommandFinished;layoutDocument=null;}layoutCommand="";}
     internal void Refresh()
     {
-        if(view==null)return;try
-        {
-            var doc=Commands.Document;document=doc.Name;using var locked=doc.LockDocument();using var tx=doc.Database.TransactionManager.StartTransaction();
-            bool managed=Commands.IsLibrary(doc.Database,tx);view.Update(doc.Name,managed,managed?LibraryFrames.Nodes(doc.Database,tx):new(),managed?LibraryFrames.ManagedItems(doc.Database,tx):new());tx.Abort();
-        }catch(System.Exception error){Message(error.Message);}
+        browser?.RefreshCadContext();
     }
-    internal void Message(string value)=>view?.Message(value);
-    internal System.Windows.FrameworkElement? RootView=>view;
+    internal void RefreshLibrary()=>browser?.ReloadFromCad();
+    internal void Message(string value)=>browser?.Message(value);
+    internal System.Windows.FrameworkElement? RootView=>browser;
 }
 
 /// <summary>Grip extension resizes the border only; membership is managed by ID, never by a stretch selection set.</summary>

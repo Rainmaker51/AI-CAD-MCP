@@ -1,6 +1,6 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const ctx={librarySourceDetails:hash=>'File nguồn:'+(hash||''),libraryManager:{},libraryGroupPath:()=>'',libraryGroupContains:()=>true,esc:s=>String(s??'').replaceAll('<','&lt;'),librarySearchText:s=>String(s).toLowerCase(),blockNumber:String,blockInfo:(l,v)=>l+':'+v,document:{addEventListener(){}},libraryDialog:(title,body,footer)=>{ctx.detail={title,body,footer};}};
-vm.createContext(ctx);vm.runInContext(fs.readFileSync('src/Desktop.Host/wwwroot/hatch-management.js','utf8'),ctx);vm.runInContext(fs.readFileSync('src/Desktop.Host/wwwroot/hatch-library.js','utf8'),ctx);
+vm.createContext(ctx);vm.runInContext(fs.readFileSync('src/Desktop.Host/wwwroot/library-identifiers.js','utf8'),ctx);vm.runInContext(fs.readFileSync('src/Desktop.Host/wwwroot/hatch-management.js','utf8'),ctx);vm.runInContext(fs.readFileSync('src/Desktop.Host/wwwroot/hatch-library.js','utf8'),ctx);
 vm.runInContext(`hatchCatalog={version:'1.0.0',sourceName:'source.dwg',entityCount:4,items:[{id:'a',pattern:'ANSI31',scale:10,angle:0,layer:'WALL',locations:['ROOM'],count:3,type:'PreDefined',engineSupported:true},{id:'b',pattern:'CUSTOM',scale:1,angle:1,layer:'FLOOR',locations:['LOBBY'],count:1,type:'CustomDefined',engineSupported:false}]};`,ctx);
 assert(ctx.hatchContent().includes('ANSI31'));assert(ctx.hatchContent().includes('CUSTOM'));
 vm.runInContext("hatchQuery='lobby'",ctx);assert(!ctx.hatchContent().includes('ANSI31'));assert(ctx.hatchContent().includes('CUSTOM'));

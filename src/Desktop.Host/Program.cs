@@ -33,7 +33,9 @@ builder.Services.AddSingleton<BlockPreviewService>();
 builder.Services.AddSingleton<HatchLibraryService>();
 builder.Services.AddSingleton<StyleLibraryService>();
 builder.Services.AddSingleton<LibrarySyncService>();
+builder.Services.AddSingleton<LibraryRepository>(sp=>sp.GetRequiredService<LibrarySyncService>());
 builder.Services.AddSingleton<LibraryIdentifierService>();
+builder.Services.AddSingleton<QaLibraryService>();
 new LibraryCatalog(config.ContentRoot).EnsureTemplateGroups();
 new LibraryCatalog(config.ContentRoot).EnsureLayerGroups();
 new LibraryCatalog(config.ContentRoot).EnsureBlockGroups();
@@ -41,7 +43,15 @@ var app=builder.Build();
 app.Use(async(ctx,next)=>{ctx.Response.Headers["X-Content-Type-Options"]="nosniff";ctx.Response.Headers["Referrer-Policy"]="no-referrer";ctx.Response.Headers["Content-Security-Policy"]="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
  if(ctx.Request.Host.Host!="127.0.0.1"&&ctx.Request.Host.Host!="localhost"){ctx.Response.StatusCode=403;return;}
  if(ctx.Request.Path.StartsWithSegments("/api")){string authorization=ctx.Request.Headers.Authorization.ToString();byte[] supplied=Encoding.UTF8.GetBytes(authorization),expected=Encoding.UTF8.GetBytes("Bearer "+token);if(supplied.Length!=expected.Length||!CryptographicOperations.FixedTimeEquals(supplied,expected)){ctx.Response.StatusCode=401;return;}string origin=ctx.Request.Headers.Origin.ToString();if(origin!=""&&origin!="http://"+ctx.Request.Host){ctx.Response.StatusCode=403;return;}ctx.Response.Headers.CacheControl="no-store";}
- try{await next();}catch(CadException e){ctx.Response.StatusCode=409;await ctx.Response.WriteAsync(JsonUtil.Write(new{code=e.Code,message=e.Message}));}catch(FileNotFoundException){ctx.Response.StatusCode=404;await ctx.Response.WriteAsync(JsonUtil.Write(new{code="NOT_FOUND",message="Requested plan or content does not exist."}));}catch(Exception e)when(e is not OperationCanceledException){ctx.Response.StatusCode=500;await ctx.Response.WriteAsync(JsonUtil.Write(new{code="APP_ERROR",message="The operation failed. Check local diagnostics."}));}});
+ try{
+ if(ctx.Request.Method=="POST"&&ctx.Request.Path.StartsWithSegments("/api")&&LibraryEditAuthority.Active(config)){
+  string kind="";
+  if(ctx.Request.Path.StartsWithSegments("/api/library-management")||ctx.Request.Path=="/api/content/activate"){
+   ctx.Request.EnableBuffering();using(var reader=new StreamReader(ctx.Request.Body,Encoding.UTF8,false,1024,true))kind=JsonUtil.Read<JObject>(await reader.ReadToEndAsync(ctx.RequestAborted)).Value<string>("kind")??"";ctx.Request.Body.Position=0;
+  }
+  if(LibraryEditAuthority.IsLibraryWrite(ctx.Request.Path.Value??"",kind))throw new CadException("QA_EDITOR_REQUIRED","Thư viện được chỉnh sửa và duyệt tại Thư viện QA trong AutoCAD. App chỉ dùng để xem và tìm kiếm.");
+ }
+ await next();}catch(CadException e){ctx.Response.StatusCode=409;await ctx.Response.WriteAsync(JsonUtil.Write(new{code=e.Code,message=e.Message}));}catch(FileNotFoundException){ctx.Response.StatusCode=404;await ctx.Response.WriteAsync(JsonUtil.Write(new{code="NOT_FOUND",message="Requested plan or content does not exist."}));}catch(Exception e)when(e is not OperationCanceledException){ctx.Response.StatusCode=500;await ctx.Response.WriteAsync(JsonUtil.Write(new{code="APP_ERROR",message="The operation failed. Check local diagnostics."}));}});
 app.UseDefaultFiles();app.UseStaticFiles();
 async System.Threading.Tasks.Task<JObject> Body(HttpContext ctx)=>JsonUtil.Read<JObject>(await new StreamReader(ctx.Request.Body).ReadToEndAsync(ctx.RequestAborted));
 IResult Out(object value)=>Results.Text(JsonUtil.Write(value),"application/json");
@@ -65,6 +75,17 @@ app.MapPost("/api/drafting/catalog",async(HttpContext ctx,DraftingLibraryService
 app.MapPost("/api/drafting/source-sync",async(HttpContext ctx,DraftingLibraryService svc)=>Out(svc.SyncSource(Text(await Body(ctx),"id"))));
 app.MapPost("/api/drafting/skill",async(HttpContext ctx,DraftingLibraryService svc)=>Out(svc.Wizard(await Body(ctx))));
 app.MapGet("/api/library-management/{kind}",(string kind,LibraryManagementService svc)=>Out(svc.State(kind)));
+app.MapGet("/api/qa-library/authority",(QaLibraryService svc)=>Out(svc.Authority()));
+app.MapPost("/api/qa-library/live/register",async(HttpContext ctx,LibrarySyncService svc)=>Out(svc.RegisterLive(Text(await Body(ctx),"id"))));
+app.MapGet("/api/qa-library/live/{snapshot}/{kind}",(string snapshot,string kind,LibrarySyncService sync,QaLibraryService svc)=>Out(svc.ReadLive(kind,sync.LiveCapture(snapshot))));
+app.MapPost("/api/qa-library/live/prepare",async(HttpContext ctx,LibrarySyncService svc)=>Out(svc.PrepareLiveApproval(await Body(ctx))));
+app.MapGet("/api/qa-library/{kind}",(string kind,QaLibraryService svc)=>Out(svc.Read(kind)));
+app.MapPost("/api/qa-library/activate",(QaLibraryService svc)=>Out(svc.Activate()));
+app.MapPost("/api/qa-library/manage",async(HttpContext ctx,QaLibraryService svc)=>Out(svc.Manage(await Body(ctx))));
+app.MapPost("/api/qa-library/group",async(HttpContext ctx,QaLibraryService svc)=>Out(svc.Group(await Body(ctx))));
+app.MapPost("/api/qa-library/block-usage",async(HttpContext ctx,LibrarySyncService svc,WorkspaceService workspace)=>Out(svc.ConfigureQaBlock(await Body(ctx),workspace.ImportTemplate)));
+app.MapPost("/api/qa-library/inspect",async(HttpContext ctx,LibrarySyncService svc)=>Out(await svc.Scan(ctx.RequestAborted,previews:true)));
+app.MapPost("/api/qa-library/approve",async(HttpContext ctx,LibrarySyncService svc)=>Out(await svc.ApproveCad(await Body(ctx),ctx.RequestAborted)));
 app.MapPost("/api/library-identifiers",(LibraryIdentifierService svc)=>Out(svc.Ensure()));
 app.MapGet("/api/layer-management/{templateId}",(string templateId,LibraryManagementService svc)=>Out(svc.LayerState(templateId)));
 app.MapPost("/api/layer-management/assign",async(HttpContext ctx,LibraryManagementService svc)=>Out(svc.AssignLayers(await Body(ctx))));

@@ -30,6 +30,7 @@ internal sealed class RainmakerRibbon
     }
 
     internal void Invalidate() => nextRead = DateTime.MinValue;
+    internal void ActivateTab(string id){Invalidate();Update();if(managedTabs.TryGetValue(id,out var tab))tab.IsActive=true;}
     internal void RenderForTest(RibbonControl control,CadToolIndex index){owner=control;Populate(index);}
 
     internal void Update()
@@ -57,8 +58,7 @@ internal sealed class RainmakerRibbon
         foreach(string removed in managedTabs.Keys.Where(id=>definitions.All(t=>t.Id!=id)).ToArray())managedTabs.Remove(removed);
         string Target(CadToolEntry tool,CadRibbonPin pin)
         {
-            string id=pin.TabId!=""?pin.TabId:tool.TabId;
-            return index.Tabs.Any(t=>t.Id==id)?id:CadToolCatalog.DefaultTabId;
+            return CadToolCatalog.RibbonTarget(index,tool,pin);
         }
         foreach(var definition in definitions)
         {

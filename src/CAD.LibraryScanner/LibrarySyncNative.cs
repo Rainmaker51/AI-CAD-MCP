@@ -77,7 +77,7 @@ public sealed class LibrarySyncNative
             }
             using var read = db.TransactionManager.StartOpenCloseTransaction();
             var items = Read(db, read, managed);
-            if (request.Value<bool>("apply")) HatchPreviews(db, read, items.Where(i => i.Kind == "hatches" && managed.Any(m => m.Id == i.Id)));
+            if (request.Value<bool>("apply") || request.Value<bool>("previews")) HatchPreviews(db, read, items.Where(i => i.Kind == "hatches" && (request.Value<bool>("previews") || managed.Any(m => m.Id == i.Id))));
             JsonUtil.Atomic(Path.Combine(Root, "sync-result.json"), new { items, layout=layoutReport, sourceHash = JsonUtil.FileHash(Path.Combine(Root, request.Value<bool>("apply") ? "synced.dwg" : "source.dwg")) });
         }
         catch (System.Exception error)
@@ -114,7 +114,7 @@ public sealed class LibrarySyncNative
 
     static LibrarySyncItem Item(DBObject obj, Transaction tx, string kind, string name, JObject values, List<LibrarySyncItem> hints)
     {
-        var item = Metadata(obj, tx, ResourceKey) ?? hints.FirstOrDefault(i => i.Kind == kind &&
+        var item = Metadata(obj, tx, ResourceKey) ?? hints.FirstOrDefault(i=>i.Kind==kind&&i.Handle!=""&&i.Handle.Equals(obj.Handle.ToString(),StringComparison.OrdinalIgnoreCase))?.Copy() ?? hints.FirstOrDefault(i => i.Kind == kind &&
             (kind == "hatches" ? i.Handle == obj.Handle.ToString() || HatchMatch(i.Values, values) : string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase)))?.Copy()
             ?? new LibrarySyncItem { Id = JsonUtil.Hash(new[] { kind, name }).Substring(0, 32), Kind = kind };
         item.Kind = kind; item.Name = name; item.Handle = obj.Handle.ToString(); item.Values = values;
@@ -127,6 +127,10 @@ public sealed class LibrarySyncNative
 
     static bool HatchMatch(JObject a, JObject b) => new[] { "pattern", "type", "layer" }.All(k => string.Equals(a.Value<string>(k), b.Value<string>(k), StringComparison.OrdinalIgnoreCase)) &&
         new[] { "scale", "angle", "color", "spacing" }.All(k => a[k] != null && b[k] != null && Math.Abs(a.Value<double>(k)-b.Value<double>(k)) < 1e-7) && a.Value<bool>("doublePattern") == b.Value<bool>("doublePattern");
+    public static JObject HatchValues(Hatch h)
+    {
+        var values=JObject.FromObject(new{pattern=h.PatternName,type=h.PatternType.ToString(),scale=h.PatternScale,angle=h.PatternAngle,layer=h.Layer,spacing=h.PatternSpace,doublePattern=h.PatternDouble});values.Merge(ColorValues(h));return values;
+    }
 
     static List<LibrarySyncItem> Read(Database db, Transaction tx, List<LibrarySyncItem> hints)
     {
@@ -423,6 +427,41 @@ public sealed class LibrarySyncNative
     }
 
     public static List<LibrarySyncItem> ReadDrawing(Database db, Transaction tx) => Read(db, tx, new List<LibrarySyncItem>());
+    public static void RebindSnapshotHandle(DBObject obj,Transaction tx)
+    {
+        var item=Metadata(obj,tx,ResourceKey);if(item==null)return;
+        Tag(obj,tx,ResourceKey,item);
+    }
+    public static List<LibrarySyncItem> ReadDrawing(Database db, Transaction tx, List<LibrarySyncItem> hints) => Read(db, tx, hints);
+    public static void EditResource(Database db, Transaction tx, LibrarySyncItem item, List<LibrarySyncItem> hints)
+    {
+        LibrarySyncRules.Validate(item);
+        var existing = Read(db, tx, hints);
+        Write(db, tx, item, existing);
+        // Only a genuinely new resource gets a new presentation sample. Editing a
+        // surviving definition must never restore an insertion erased by the user.
+        if(existing.Any(i=>i.Id==item.Id))return;
+        var created=Read(db,tx,hints.Concat(new[]{item}).ToList()).Single(i=>i.Id==item.Id);
+        var resource=Resolve(db,tx,created);
+        Entity sample=resource switch{
+            LayerTableRecord layer=>new Line(Point3d.Origin,new Point3d(5200,0,0)){LayerId=layer.ObjectId},
+            BlockTableRecord block=>new BlockReference(Point3d.Origin,block.ObjectId),
+            TextStyleTableRecord text=>new DBText{TextString="Aa Bb 0123456789",TextStyleId=text.ObjectId,Height=text.TextSize>0?text.TextSize:200},
+            DimStyleTableRecord dim=>new RotatedDimension(0,Point3d.Origin,new Point3d(3000,0,0),new Point3d(0,800,0),"",dim.ObjectId),
+            Hatch hatch=>hatch,
+            _=>throw new InvalidOperationException("Không tạo được mẫu mới.")};
+        var bt=(BlockTable)tx.GetObject(db.BlockTableId,OpenMode.ForRead);var model=(BlockTableRecord)tx.GetObject(bt[BlockTableRecord.ModelSpace],OpenMode.ForWrite);
+        if(sample.ObjectId.IsNull){model.AppendEntity(sample);tx.AddNewlyCreatedDBObject(sample,true);}
+        if(sample is BlockReference reference)
+            foreach(ObjectId child in (BlockTableRecord)tx.GetObject(reference.BlockTableRecord,OpenMode.ForRead))
+                if(tx.GetObject(child,OpenMode.ForRead) is AttributeDefinition attribute&&!attribute.Constant){var value=new AttributeReference();value.SetAttributeFromBlock(attribute,reference.BlockTransform);value.TextString=attribute.TextString;reference.AttributeCollection.AppendAttribute(value);tx.AddNewlyCreatedDBObject(value,true);}
+        if(sample is Dimension dimension)dimension.RecomputeDimensionBlock(true);
+        MarkSample(sample,tx,created);LibraryFrames.AddCell(db,tx,created,sample);
+        var nodes=LibraryFrames.Nodes(db,tx);var node=LibraryFrames.Ensure(nodes,created.Kind,created.Group);LibraryFrames.Save(db,tx,nodes);
+        var displayed=Read(db,tx,hints.Concat(new[]{created}).ToList()).Where(i=>ModelHasSample(db,tx,i.Id)).ToList();
+        LibraryFrames.AppendToGroup(db,tx,node,displayed,new(){created});LibraryFrames.Clear(db,tx);LibraryFrames.Build(db,tx,displayed);
+    }
+    static bool ModelHasSample(Database db,Transaction tx,string id)=>LibraryFrames.Model(db,tx).Any(e=>SampleMetadata(e,tx)?.Id==id&&e is not MText&&e is not Polyline);
     public static LibrarySyncItem? SampleMetadata(DBObject obj, Transaction tx) => Metadata(obj, tx, SampleKey);
     public static void MarkSample(Entity entity, Transaction tx, LibrarySyncItem item) => Tag(entity,tx,SampleKey,new LibrarySyncItem{Id=item.Id,Kind=item.Kind,Name=item.Name,Handle=entity.Handle.ToString()});
     public static bool Managed(Database db, Transaction tx, LibrarySyncItem item) => Metadata(Resolve(db, tx, item), tx, ResourceKey) != null;

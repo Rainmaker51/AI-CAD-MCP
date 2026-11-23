@@ -16,7 +16,7 @@ public sealed class LibraryIdentifierItem
  public string Name {get;set;}="";
  public string Status {get;set;}="PENDING_SYNC";
 }
-public sealed class LibraryIdentifierService(InstallConfig config,LibrarySyncService sync)
+public sealed class LibraryIdentifierService(InstallConfig config,LibraryRepository sync)
 {
  public object Ensure()
  {
@@ -27,9 +27,9 @@ public sealed class LibraryIdentifierService(InstallConfig config,LibrarySyncSer
   var items=new List<LibraryIdentifierItem>();var store=new ContentStore(config.ContentRoot);var template=store.Template("ISO_QUANGANH");
   foreach(var block in template.Blocks)Add("blocks",block.Id,block.NativeSource?.BlockName??block.Id,"");
   foreach(var layer in template.Layers)Add("layers",layer.Name,layer.Name,"");
-  var styles=new StyleLibraryService(config);
-  foreach(string kind in new[]{"texts","dims"})foreach(var resource in styles.Read(kind)["items"]!.OfType<JObject>())Add(kind,resource.Value<string>("id")!,resource.Value<string>("name")!,"");
-  foreach(var hatch in new HatchLibraryService(config).Read()["items"]!.OfType<JObject>())Add("hatches",hatch.Value<string>("id")!,hatch.Value<string>("pattern")??"",hatch.Value<string>("handle")??"");
+
+  foreach(string kind in new[]{"texts","dims"})foreach(var resource in sync.CatalogView(kind)["items"]!.OfType<JObject>())Add(kind,resource.Value<string>("id")!,resource.Value<string>("name")!,"");
+  foreach(var hatch in sync.CatalogView("hatches")["items"]!.OfType<JObject>())Add("hatches",hatch.Value<string>("id")!,hatch.Value<string>("pattern")??"",hatch.Value<string>("handle")??"");
   return new {revision=index.Revision,sourceId="ISO_QUANGANH",items};
 
   void Add(string kind,string resourceId,string name,string handle)

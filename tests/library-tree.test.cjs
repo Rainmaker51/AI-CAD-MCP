@@ -1,7 +1,7 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const escape=s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');
 const ctx={librarySourceDetails:hash=>'File nguồn:'+(hash||''),document:{addEventListener(){}},esc:escape,libraryManager:{templates:{data:{groups:[{Id:'a',Name:'Kiến trúc',ParentId:''},{Id:'b',Name:'Cửa',ParentId:'a'},{Id:'c',Name:'Cửa sổ',ParentId:'b'}]},group:'a'}},state:{templates:[{Id:'T',GroupId:'c'}]}};
-vm.createContext(ctx);vm.runInContext(fs.readFileSync('src/Desktop.Host/wwwroot/library-tree.js','utf8'),ctx);
+vm.createContext(ctx);vm.runInContext(fs.readFileSync('src/Desktop.Host/wwwroot/library-identifiers.js','utf8'),ctx);vm.runInContext(fs.readFileSync('src/Desktop.Host/wwwroot/library-tree.js','utf8'),ctx);
 assert(ctx.libraryGroupContains('templates','a','c'));assert(!ctx.libraryGroupContains('templates','c','a'));
 assert.equal(ctx.libraryGroupPath('templates','c'),'Kiến trúc / Cửa / Cửa sổ');
 assert(!ctx.libraryTreeOptions('templates','','b').includes('value="c"'));

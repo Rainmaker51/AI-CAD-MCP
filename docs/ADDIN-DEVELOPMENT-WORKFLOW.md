@@ -6,6 +6,8 @@ Ngày lập: 19/11/2026. Áp dụng cho mọi add-in .NET do dự án phát tri�
 
 Khi bắt đầu một yêu cầu phát triển add-in, đọc file này và `README.md` của add-in trong `Tools/dotnet/_Development`. Xác định kho đang kết nối qua `warehouse.local.json` của máy hiện tại; không dùng đường dẫn ổ đĩa của máy kia.
 
+Khi tạo mới hoặc thiết kế giao diện, đọc thêm `docs/ADDIN-UI-STANDARD.md`: dùng giao diện Axis làm chuẩn cả màu, bố cục và điều khiển. Đây là yêu cầu của dự án, không phải chỉ gợi ý thẩm mỹ; không tự chuyển đổi giao diện add-in cũ ngoài phạm vi được giao.
+
 Mã nguồn chính nằm trong repo Git AI-CAD-MCP. Thư mục phát triển trong kho dùng để lưu gói DLL, thông tin build, ghi chú và bằng chứng kiểm thử theo từng add-in/phiên bản. Không tạo một bản source chỉnh sửa độc lập ngoài Git. Nếu đang làm dở, phải bàn giao commit hoặc bản vá cùng commit gốc để có thể tái tạo build.
 
 ## 2. Ba nơi có vai trò khác nhau

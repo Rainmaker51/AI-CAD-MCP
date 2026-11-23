@@ -14,6 +14,6 @@ public static class CadSourceFile {
  }
  public const string BaseLibraryName="ISO_QuangAnh_ThuVien.dwg";
  public static string BaseLibraryPath(string appRoot){string path=Path.Combine(WarehousePaths.Resolve(appRoot),"CAD","Originals",BaseLibraryName);if(!File.Exists(path))throw new CadException("MISSING_ASSET","Không tìm thấy "+BaseLibraryName+" trong CAD/Originals của kho.");return path;}
- public static string Hash(string path){try{using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);using var hash=SHA256.Create();return Convert.ToHexString(hash.ComputeHash(stream)).ToLowerInvariant();}catch(IOException){throw new CadException("SOURCE_BUSY","Không đọc được DWG nguồn; lưu xong bản vẽ rồi thử lại.");}}
+ public static string Hash(string path){try{using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);using var hash=SHA256.Create();return BitConverter.ToString(hash.ComputeHash(stream)).Replace("-","").ToLowerInvariant();}catch(IOException){throw new CadException("SOURCE_BUSY","Không đọc được DWG nguồn; lưu xong bản vẽ rồi thử lại.");}}
  public static void Copy(string source,string destination){try{using var input=new FileStream(source,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);using var output=new FileStream(destination,FileMode.CreateNew,FileAccess.Write,FileShare.None);input.CopyTo(output);}catch(IOException){throw new CadException("SOURCE_BUSY","Không sao chép được DWG nguồn; lưu xong rồi thử lại.");}}
 }

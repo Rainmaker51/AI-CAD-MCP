@@ -10,7 +10,7 @@ using Autodesk.AutoCAD.Runtime;
 [assembly:CommandClass(typeof(Rainmaker.Library.NativeTests))]
 namespace Rainmaker.Library;
 
-public sealed class NativeTests
+public sealed partial class NativeTests
 {
     [CommandMethod("QALIBUIVERIFY")]
     public void VerifyUi()
@@ -39,6 +39,12 @@ public sealed class NativeTests
         var previous=HostApplicationServices.WorkingDatabase;
         try
         {
+            EditProfiles();
+            VerifyLayoutContext(root);
+            RenderBrowser(root);
+            VerifyLiveAndInsertion(root);
+            VerifyHatchView(root);
+            VerifyStandalone(root);
             using var db=new Database(true,true){Insunits=UnitsValue.Millimeters};HostApplicationServices.WorkingDatabase=db;
             using(var tx=db.TransactionManager.StartTransaction())
             {
@@ -113,5 +119,80 @@ public sealed class NativeTests
         }
         catch(System.Exception error){AICad.Contracts.Json.Atomic(Path.Combine(root,"result.json"),new{passed=false,error=error.ToString()});}
         finally{HostApplicationServices.WorkingDatabase=previous;}
+    }
+    static void EditProfiles()
+    {
+        var previous=HostApplicationServices.WorkingDatabase;
+        try
+        {
+            using var db=new Database(true,true){Insunits=UnitsValue.Millimeters};HostApplicationServices.WorkingDatabase=db;
+            using var tx=db.TransactionManager.StartTransaction();
+            var hints=new System.Collections.Generic.List<LibrarySyncItem>();
+            LibrarySyncItem Add(string kind,string name,object values)
+            {
+                var item=new LibrarySyncItem{Id=Guid.NewGuid().ToString("N"),Kind=kind,Name=name,Values=Newtonsoft.Json.Linq.JObject.FromObject(values)};
+                LibrarySyncNative.EditResource(db,tx,item,hints);hints.Add(item);return item;
+            }
+            var layer=Add("layers","QA_EDIT",new{color=7,lineWeight=25,lineType="Continuous",plottable=true});
+            layer.Name="QA_RENAMED";layer.Values["color"]=3;LibrarySyncNative.EditResource(db,tx,layer,hints);
+            var text=Add("texts","QA_EDIT_TEXT",new{font="tahoma.ttf",bigFont="",height=0,widthFactor=0.8,obliqueAngle=0,vertical=false});
+            var dim=Add("dims","QA_EDIT_DIM",new{textStyle=text.Name,annotative=false,textHeight=2.5,arrowSize=2.5,scale=60,linearFactor=1,precision=0,extensionOffset=1,extensionBeyond=1,baselineSpacing=7,textGap=1,rounding=0,unitFormat=2,angularPrecision=0,zeroSuppression=0});
+            var hatch=Add("hatches","QA_HATCH",new{pattern="ANSI31",type="PreDefined",scale=300,angle=0.5,layer=layer.Name,color=8,spacing=1,doublePattern=false});
+            var read=LibrarySyncNative.ReadDrawing(db,tx,hints);
+            Check(read.Single(i=>i.Id==layer.Id).Name=="QA_RENAMED"&&read.Single(i=>i.Id==layer.Id).Values.Value<int>("color")==3,"QA editor lost layer identity on rename");
+            Check(Math.Abs(read.Single(i=>i.Id==text.Id).Values.Value<double>("widthFactor")-0.8)<1e-9,"QA text profile not applied");
+            Check(read.Single(i=>i.Id==dim.Id).Name=="QA_EDIT_DIM"&&read.Single(i=>i.Id==dim.Id).Values.Value<double>("scale")==60,"QA dim name/scale changed");
+            Check(read.Single(i=>i.Id==hatch.Id).Values.Value<double>("scale")==300&&read.Single(i=>i.Id==hatch.Id).Values.Value<int>("color")==8,"QA hatch profile not applied");
+            tx.Abort();
+        }
+        finally{HostApplicationServices.WorkingDatabase=previous;}
+    }
+    static void RenderBrowser(string root)
+    {
+        var window=new QaBrowserWindow(test:true);
+        try
+        {
+            var row=new Newtonsoft.Json.Linq.JObject{["resourceId"]="QA_TEST",["metadataId"]="test",["id"]=Guid.NewGuid().ToString("N"),["code"]="BLK-0001",["name"]="QA_KT_CUA",["displayName"]="Cửa thư viện",["management"]=Newtonsoft.Json.Linq.JObject.FromObject(new LibraryLabel{Purpose="Mẫu cửa kiến trúc",Reviewed=true}),["profile"]=new Newtonsoft.Json.Linq.JObject{["Loại"]="Block động",["Đơn vị"]="mm"},["image"]=""};
+            string parent=Guid.NewGuid().ToString("N"),child=Guid.NewGuid().ToString("N");
+            row["management"]!["GroupId"]=child;
+            window.Bind(new Newtonsoft.Json.Linq.JObject{["source"]="C:/Library/ISO_QuangAnh_ThuVien.dwg",["revision"]=1,["version"]="1.2.26",["groups"]=Newtonsoft.Json.Linq.JArray.FromObject(new[]{new LibraryGroup{Id=parent,Name="Kiến trúc"},new LibraryGroup{Id=child,Name="Cửa",ParentId=parent}}),["items"]=new Newtonsoft.Json.Linq.JArray(row),["authority"]=new Newtonsoft.Json.Linq.JObject{["editor"]="QA"}});
+            var tree=(System.Windows.Controls.TreeView)typeof(QaBrowserWindow).GetField("tree",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(window)!;
+            typeof(QaBrowserWindow).GetMethod("SelectTreeGroup",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.Invoke(null,new object[]{tree,child});
+            var layoutStatus=(System.Windows.Controls.TextBlock)typeof(QaBrowserWindow).GetField("layoutStatus",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(window)!;
+            Check(layoutStatus.Text.Contains("Kiến trúc / Cửa"),"Layout controls did not follow the shared library group selection");
+            Check(!window.LayoutSection.IsExpanded,"Layout section must start collapsed");
+            Check(typeof(LibraryPlugin).GetMethod("ShowLayout",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)==null,"A separate layout window remains reachable");
+            Check(typeof(LibraryPlugin).GetFields(System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance).All(f=>f.Name!="palette"),"A second main palette is still allocated");
+            window.CatalogFallback(new Newtonsoft.Json.Linq.JObject{["source"]="C:/Library/ISO_QuangAnh_ThuVien.dwg",["groups"]=Newtonsoft.Json.Linq.JArray.FromObject(new[]{new LibraryGroup{Id=parent,Name="Kiến trúc"},new LibraryGroup{Id=child,Name="Cửa",ParentId=parent}}),["items"]=new Newtonsoft.Json.Linq.JArray(row)});
+            var catalogList=(System.Windows.Controls.ListBox)typeof(QaBrowserWindow).GetField("list",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(window)!;
+            Check(catalogList.Items.Count==1&&tree.Items.Count==3,"Failed CAD read hid the published catalog or groups");
+            bool readOnly=false;try{typeof(QaBrowserWindow).GetMethod("DemandLive",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.Invoke(window,null);}catch(System.Reflection.TargetInvocationException error)when(error.InnerException is InvalidOperationException){readOnly=true;}
+            Check(readOnly,"Catalog-only fallback allowed editing");
+            window.LayoutSection.IsExpanded=true;
+            var rootView=(System.Windows.FrameworkElement)window.Content;
+            rootView.Measure(new System.Windows.Size(1400,820));rootView.Arrange(new System.Windows.Rect(0,0,1400,820));rootView.UpdateLayout();
+            var bitmap=new System.Windows.Media.Imaging.RenderTargetBitmap(1400,820,96,96,System.Windows.Media.PixelFormats.Pbgra32);bitmap.Render(rootView);var encoder=new System.Windows.Media.Imaging.PngBitmapEncoder();encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));using var output=File.Create(Path.Combine(root,"browser.png"));encoder.Save(output);
+        }
+        finally{window.Close();}
+    }
+    static void VerifyLayoutContext(string root)
+    {
+        string kind=Commands.Kind,group=Commands.SelectedGroup;
+        try
+        {
+            string file=Commands.Document.Name;
+            var context=new LayoutCommandContext(file,"layers","selected-test-group",true);
+            context.DemandSource(file.ToUpperInvariant());
+            bool rejected=false;try{context.DemandSource(Path.Combine(root,"other.dwg"));}catch(CadException error)when(error.Code=="LIBRARY_SOURCE"){rejected=true;}
+            Check(rejected,"Queued layout allowed a different drawing");
+            bool invoked=false;
+            Commands.PendingLayout=new LayoutCommandContext(Path.Combine(root,"other.dwg"),"layers","selected-test-group",true);
+            Commands.Guard((doc,tx)=>invoked=true,true);
+            Check(!invoked&&Commands.PendingLayout==null,"A queued layout action executed on the wrong drawing or retained its pending context");
+            Commands.PendingLayout=context;
+            Commands.Guard((doc,tx)=>{invoked=Commands.Kind=="layers"&&Commands.SelectedGroup=="selected-test-group";throw new CadException("CANCELLED","Fixture canceled");},true);
+            Check(invoked&&Commands.PendingLayout==null,"Layout lost the captured kind/group or cancellation left a pending context");
+        }
+        finally{Commands.Kind=kind;Commands.SelectedGroup=group;Commands.PendingLayout=null;}
     }
 }

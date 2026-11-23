@@ -7,14 +7,19 @@ namespace AICad.Bridge;
 
 internal static class CadToolRibbonSetup
 {
+ internal static string Location(CadToolIndex index,CadToolEntry tool)
+ {
+  var tabs=tool.RibbonPins.Where(p=>tool.Commands.Contains(p.Command,StringComparer.OrdinalIgnoreCase)).Select(p=>CadToolCatalog.RibbonTarget(index,tool,p)).Distinct().Select(id=>index.Tabs.Single(t=>t.Id==id)).Select(t=>t.Name+(!t.Enabled&&t.Id!=CadToolCatalog.DefaultTabId?" (ẩn)":"")).ToList();
+  return tabs.Count==0?"Chưa ghim":string.Join("; ",tabs)+(tool.DeletedUtc.HasValue?" · thùng rác":!tool.Enabled?" · add-in tắt":"");
+ }
  internal static string Status(CadToolIndex index,CadToolEntry tool)
  {
   var pins=tool.RibbonPins.Where(p=>tool.Commands.Contains(p.Command,StringComparer.OrdinalIgnoreCase)).ToList();
-  int visible=pins.Count(p=>index.Tabs.Any(t=>t.Id==(p.TabId!=""?p.TabId:tool.TabId)&&(t.Enabled||t.Id==CadToolCatalog.DefaultTabId)));
+  int visible=pins.Count(p=>index.Tabs.Any(t=>t.Id==CadToolCatalog.RibbonTarget(index,tool,p)&&(t.Enabled||t.Id==CadToolCatalog.DefaultTabId)));
   if(tool.DeletedUtc.HasValue)return "Ribbon: công cụ trong thùng rác.";
   if(!tool.Enabled)return "Ribbon: công cụ đang tắt.";
   if(tool.Commands.Count==0)return "Ribbon: nạp DLL một lần để đọc lệnh, sau đó chọn ghim lên Ribbon.";
-  if(pins.Count==0)return "Ribbon: chưa ghim nút nào · Chọn Ghim tất cả lệnh hoặc mở cấu hình để ghim từng lệnh.";
+  if(pins.Count==0)return "Ribbon: chưa ghim nút nào · Chọn lệnh mở bảng hoặc đánh dấu trong danh sách.";
   return "Ribbon: "+pins.Count+"/"+tool.Commands.Count+" lệnh đã ghim · "+visible+" nút trên tab đang bật."+(visible<pins.Count?" Có nút nằm trên tab đang ẩn.":"");
  }
 

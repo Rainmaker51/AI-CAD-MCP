@@ -127,3 +127,25 @@ Console.WriteLine("PASS: one installed version, immutable history, rollback, dup
 Directory.CreateDirectory(legacyFolder);File.SetAttributes(legacyFolder,File.GetAttributes(legacyFolder)|FileAttributes.ReadOnly);
 migrate.MigrateInstalled(migrate.Read().Revision);Check(!Directory.Exists(Path.GetDirectoryName(legacyFolder)!));
 Console.WriteLine("PASS: read-only sync folders and interrupted empty-folder cleanup retries");
+
+// Ribbon edits are atomic and undo only restores the same unchanged package.
+var editor=new CadToolCatalog(Path.Combine(root,"ribbon-editing"));var editTool=editor.Import(source,0);
+editor.Update(editTool.Id,1,"Library","Original group","Notes",true,new[]{"QALIBRARY","QALIBPACK"});
+string aTab=editor.SaveTab(2,"","A",1),bTab=editor.SaveTab(3,"","B",2),hiddenTab=editor.SaveTab(4,"","Hidden",3,false);
+editor.SetRibbonLayout(editTool.Id,5,aTab,new[]{new CadRibbonPin{Command="QALIBRARY",Label="Open custom",Order=17},new CadRibbonPin{Command="QALIBPACK",Label="Pack custom",TabId=bTab,Group="Custom",Order=23}},"FIXTURE");
+string beforeLayout=CadToolCatalog.RibbonLayoutHash(editor.Read().Items.Single());int beforeRevision=editor.Read().Revision;
+editor.MoveRibbon(editTool.Id,beforeRevision,bTab);var movedLayout=editor.Read();
+Check(movedLayout.Revision==beforeRevision+1&&movedLayout.Items.Single().RibbonPins.All(p=>p.TabId==""));
+Check(movedLayout.Items.Single().RibbonPins.All(p=>CadToolCatalog.RibbonTarget(movedLayout,movedLayout.Items.Single(),p)==bTab));
+Check(movedLayout.Items.Single().RibbonPins[0].Label=="Open custom"&&movedLayout.Items.Single().RibbonPins[1].Order==23);
+Check(new CadToolCatalog(Path.Combine(root,"ribbon-editing")).CanUndoRibbon(editTool.Id));
+editor.UndoRibbon(editTool.Id,movedLayout.Revision);Check(CadToolCatalog.RibbonLayoutHash(editor.Read().Items.Single())==beforeLayout&&!editor.CanUndoRibbon(editTool.Id));
+int unchanged=editor.Read().Revision;Reject(()=>editor.MoveRibbon(editTool.Id,unchanged,hiddenTab),"RIBBON_TAB_HIDDEN");Check(editor.Read().Revision==unchanged);
+Reject(()=>editor.SetRibbonLayout(editTool.Id,unchanged,aTab,new[]{new CadRibbonPin{Command="UNKNOWN"}},"INVALID"),"TOOL_COMMAND");Check(editor.Read().Revision==unchanged);
+editor.SetRibbonLayout(editTool.Id,unchanged,aTab,Array.Empty<CadRibbonPin>(),"UNPIN_ALL");Check(editor.Read().Items.Single().RibbonPins.Count==0);
+editor.UndoRibbon(editTool.Id,editor.Read().Revision);Check(CadToolCatalog.RibbonLayoutHash(editor.Read().Items.Single())==beforeLayout);
+editor.SetRibbonLayout(editTool.Id,editor.Read().Revision,bTab,new[]{new CadRibbonPin{Command="QALIBRARY",Label="Main"}},"MAIN_ONLY");
+var saved=editor.Read().Items.Single();Check(saved.Commands.Count==2&&saved.RibbonPins.Count==1&&saved.Name=="Library"&&saved.Group=="Original group"&&saved.Notes=="Notes");
+editor.SetRibbonPin(editTool.Id,editor.Read().Revision,new(){Command="QALIBPACK",Label="Other session"},true);
+Check(!editor.CanUndoRibbon(editTool.Id));Reject(()=>editor.UndoRibbon(editTool.Id,editor.Read().Revision),"RIBBON_UNDO_CHANGED");
+Console.WriteLine("PASS: mixed tab overrides move atomically, reopen/undo, unpin all, main-only, hidden/invalid rejection and cross-session undo guard");
