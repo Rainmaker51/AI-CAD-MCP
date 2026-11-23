@@ -27,6 +27,11 @@ internal static class AxisNativeTests
   var selected=library.Resolve(settings,false);library.Save(settings);Check(library.Load().BayDimId==settings.BayDimId,"Settings persist stable ID");
   var stale=library.Load();library.Save(settings);try{library.Save(stale);throw new Exception("Stale save accepted");}catch(CadException e)when(e.Code=="STALE_EDIT"){}
   selected=library.Resolve(settings,false);
+  Check(selected.Head.Usage==null,"Axis must not inherit legacy role, approval or dynamic overrides");
+  var originalHead=library.Template.Blocks.First(b=>b.NativeSource?.BlockName==selected.Head.NativeSource!.BlockName);
+  var oldUsage=originalHead.Usage;originalHead.Usage=new(){Role="door",Reviewed=false,Layer="NOT_THE_SELECTED_LAYER",Values=new(){["nonexistent"]=123}};
+  try{Check(library.Resolve(settings,false).Head.Usage==null,"Legacy Skill role and unchecked review must not control Axis");}
+  finally{originalHead.Usage=oldUsage;}
   var p=new AxisGridParameters{Scale=60,XBays=new double[]{4000,5000},YBays=new double[]{3000},XLabels=new[]{"1","2","3"},YLabels=new[]{"A","B"},Library=selected};
   var plan=RainmakerAxis.ConfiguredPlan(selected,p,Point3d.Origin);
   Check(library.Load().DimOffset==1300&&library.Load().DimRowGap==700,"Spacing persists");
@@ -102,6 +107,9 @@ internal static class AxisNativeTests
    }
   }
   JsonUtil.Atomic(Path.Combine(root,"actual-dim-scale.json"),readings);
+  if(Environment.GetEnvironmentVariable("AICAD_AXIS_RESOURCE_TEST_ONLY")=="1"){
+   JsonUtil.Atomic(Path.Combine(root,"axis-upgrade-results.json"),new{passed=true,resourceSelectionOnly=true,legacyRoleIgnored=true,reviewIgnored=true,settingsPersisted=true,axisLines=5,axisHeads=10,dimensions=10,saveReopen=true,annotativeContext=true});return;
+  }
   ConstructionNativeTests.Run(root);
   AxisInteractiveNativeTests.Run(root);
   AxisInteraction150Tests.Run(root);

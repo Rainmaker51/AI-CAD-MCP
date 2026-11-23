@@ -149,7 +149,8 @@ internal sealed partial class QaBrowserWindow
         request.Scale=form.Value.Value<double>("scale");request.Degrees=form.Value.Value<double>("rotationDegrees");
         if(!request.Scale.IsFiniteCompat()||request.Scale<=0||!request.Degrees.IsFiniteCompat())throw new InvalidOperationException("Tỷ lệ phải lớn hơn 0, góc xoay phải hữu hạn.");
         var values=keepExisting?QaBlockInsert.DescribeExisting(target.Database,request.Name):row["item"]?["Values"] as JObject??new();
-        var usage=keepExisting?new JObject():(row["profile"]?["Usage"] as JObject)?["Values"] as JObject??new();
+        // Native insertion starts from DWG defaults, never from retired Skill usage profiles.
+        var usage=new JObject();
         var dynamicValues=new JObject();var options=new Dictionary<string,string[]>();
         foreach(var p in (values["properties"] as JArray??new()).OfType<JObject>().Where(p=>p.Value<bool?>("readOnly")!=true))
         {

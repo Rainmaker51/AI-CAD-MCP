@@ -279,7 +279,7 @@ public partial class LibraryRepository
                 throw new CadException("DEPENDENCY_IMPACT", "Tài nguyên còn được thư viện sử dụng: " + item.Name);
         foreach (string id in Store.Ids("skills").Where(id => !WarehousePaths.IsRetired(config.ContentRoot, "skills", id) && !Catalog.Deleted("skills", id)))
         {
-            var skill = Store.Skill(id); if (skill.TemplateId != template.Id) continue;
+            var skill = Store.Skill(id); if (skill.TemplateId != template.Id || LibraryWorkflowPolicy.IsArchivedBuilder(skill.Builder)) continue;
             try
             {
                 if (skill.Recipe != null && (skill.Recipe.AllowedBlocks.Any(removedBlockIds.Contains) || skill.Recipe.Layers.Values.Any(name => removed.Any(i => i.Kind == "layers" && RemovedName(i, name)))))
@@ -487,7 +487,7 @@ public partial class LibraryRepository
         foreach(string skillId in Store.Ids("skills"))
         {
             var skill=Store.Skill(skillId);
-            if(skill.TemplateId!="ISO_QUANGANH")continue;
+            if(skill.TemplateId!="ISO_QUANGANH"||LibraryWorkflowPolicy.IsArchivedBuilder(skill.Builder))continue;
             bool changed=false;
             if(skill.Recipe!=null)foreach(string key in skill.Recipe.Layers.Keys.ToArray())if(renames.TryGetValue(skill.Recipe.Layers[key],out string? name)){skill.Recipe.Layers[key]=name;changed=true;}
             foreach(var operation in skill.Workflow){

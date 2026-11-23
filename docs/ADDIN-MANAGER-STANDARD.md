@@ -20,6 +20,10 @@ Trong dự án AI-CAD-MCP, đọc thêm `docs/ADDIN-DEVELOPMENT-WORKFLOW.md` đ�
 | Add-in | Cung cấp một lệnh mở bảng chính, bảng điều khiển riêng, các chức năng nghiệp vụ và vòng đời tài nguyên |
 | Người dùng | Chọn tab/nhóm đặt nút, dùng các chức năng trong bảng và quyết định cập nhật phiên bản |
 
+### Tài nguyên từ kho và cấu hình nghiệp vụ
+
+Thư viện QA quản lý tài nguyên gốc, không duyệt quyền sử dụng và không yêu cầu Role. Từng add-in chọn block/layer/dim/hatch theo ID ổn định, lưu cấu hình riêng ở `Catalog/addin-settings/<tool-id>.json` và tự kiểm tra yêu cầu nghiệp vụ như tag ATT, visibility, tham số động, phạm vi giá trị. Không ghi đè Usage/template chung để cấu hình cho riêng một công cụ. Dùng các DLL đang có; không phát sinh dịch vụ nền để đọc kho hoặc kiểm tra lựa chọn. Xem `QA-RESOURCE-WORKFLOW.md`.
+
 Add-in không tự tạo tab, panel hay nút Ribbon, không tự đăng ký nạp bằng Registry, Startup Suite hoặc cơ chế khác song song với Manager. Gói cài thông thường được nhập qua Manager; chính CAD Tool Manager là bộ lõi có trình cài riêng.
 
 ## 3. Một nút Ribbon cho mỗi add-in

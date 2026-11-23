@@ -50,10 +50,18 @@ try{
   if([int]$response.StatusCode -eq 409 -and $body -like '*QA_EDITOR_REQUIRED*'){$blocked=$true}else{throw ('Unexpected write rejection: '+$body)}
  }
  if(-not $blocked){throw 'Old web write endpoint bypassed QA authority'}
+ $sourceArchived=$false
+ try{Invoke-RestMethod -Uri ($hostState.url+'/api/source-queue') -Headers $headers -Method Post -ContentType application/json -Body '{}'|Out-Null}
+ catch{
+  $response=$_.Exception.Response;$body=$_.ErrorDetails.Message
+  if(-not $body){$reader=[IO.StreamReader]::new($response.GetResponseStream());try{$body=$reader.ReadToEnd()}finally{$reader.Dispose()}}
+  if([int]$response.StatusCode -eq 409 -and $body -like '*PDF_CAD_ARCHIVED*'){$sourceArchived=$true}else{throw ('Unexpected PDF retirement response: '+$body)}
+ }
+ if(-not $sourceArchived){throw 'Retired PDF workflow accepted a new queue job'}
  $unauthorized=$false
  try{Invoke-RestMethod -Uri ($hostState.url+'/api/qa-library/blocks')|Out-Null}catch{if([int]$_.Exception.Response.StatusCode -eq 401){$unauthorized=$true}else{throw}}
  if(-not $unauthorized){throw 'QA endpoint accepted an unauthenticated request'}
- @{passed=$true;kinds=$results;originalLegacyCaptureReplayed=([bool]$env:QA_LEGACY_CAPTURE);crossRuntimeNativeSignature=$true;liveCadFiveKinds=$true;liveReview=$true;savedApprovalGuard=$true;legacyWritesBlocked=$blocked;authenticationRequired=$unauthorized}|ConvertTo-Json -Depth 5|Set-Content -LiteralPath (Join-Path $test 'result.json') -Encoding UTF8
+ @{passed=$true;kinds=$results;originalLegacyCaptureReplayed=([bool]$env:QA_LEGACY_CAPTURE);crossRuntimeNativeSignature=$true;liveCadFiveKinds=$true;liveReview=$true;savedApprovalGuard=$true;legacyWritesBlocked=$blocked;pdfSourceArchived=$sourceArchived;authenticationRequired=$unauthorized}|ConvertTo-Json -Depth 5|Set-Content -LiteralPath (Join-Path $test 'result.json') -Encoding UTF8
  Write-Output ('PASS: HTTP five kinds, QA authority and authentication; '+$test)
 }finally{
  if(-not $process.HasExited){Stop-Process -Id $process.Id -Force}

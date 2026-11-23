@@ -12,7 +12,7 @@
         "dependencies": {
           "CAD.Contracts": "[1.0.0, )",
           "CAD.Geometry": "[1.0.0, )",
-          "Rainmaker.Library.Core": "[1.0.0, )"
+          "Rainmaker.Library.Core": "[1.6.1, )"
         }
       },
       "cad.contracts": {

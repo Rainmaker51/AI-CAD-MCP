@@ -10,6 +10,8 @@ Khi tạo mới hoặc thiết kế giao diện, đọc thêm `docs/ADDIN-UI-STA
 
 Mã nguồn chính nằm trong repo Git AI-CAD-MCP. Thư mục phát triển trong kho dùng để lưu gói DLL, thông tin build, ghi chú và bằng chứng kiểm thử theo từng add-in/phiên bản. Không tạo một bản source chỉnh sửa độc lập ngoài Git. Nếu đang làm dở, phải bàn giao commit hoặc bản vá cùng commit gốc để có thể tái tạo build.
 
+Đọc thêm `docs/TEST-ARTIFACT-LIFECYCLE.md` về vòng đời dữ liệu kiểm thử. Sau mỗi phiên phải giữ bằng chứng cần thiết, xác minh bản bàn giao và dọn dữ liệu tạm của phiên, kèm thống kê dung lượng. Profile AutoCAD/Host thử nghiệm dùng thư mục cục bộ `.tools/test-runs/<run-id>`, không sao chép hàng loạt vào kho đồng bộ.
+
 ## 2. Ba nơi có vai trò khác nhau
 
 | Nơi lưu | Vai trò |
@@ -76,7 +78,7 @@ $sdk = if (Test-Path ./.tools/dotnet/dotnet.exe) { './.tools/dotnet/dotnet.exe' 
 if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
 ```
 
-Thư mục `working` có thể bỏ sau khi build đã được lưu và kiểm tra, nhưng chỉ dọn các thư mục thuộc phiên công việc đó. Không tự xóa bản cũ, gói đang chọn hoặc nguồn chưa bàn giao.
+Thư mục `working` phải được rà soát và dọn sau khi build/bằng chứng đã được lưu và kiểm tra, theo `docs/TEST-ARTIFACT-LIFECYCLE.md`; chỉ dọn dữ liệu tạm thuộc phiên công việc đó. Không tự xóa bản cũ đã bàn giao, gói đang chọn hoặc nguồn chưa bàn giao. Nếu đang chờ cài hoặc bị khóa, ghi rõ thư mục còn giữ và lý do thay vì để tích lũy không ghi nhận.
 
 ## 5. Manifest tối thiểu
 

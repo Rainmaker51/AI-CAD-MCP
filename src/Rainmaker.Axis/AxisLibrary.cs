@@ -82,7 +82,7 @@ internal sealed class AxisLibrary
   if(File.Exists(Path.Combine(root,"Catalog","sync","pending.json")))throw new CadException("AXIS_SYNC_BUSY","Kho đang có giao dịch đồng bộ chưa hoàn tất. Hoàn tất đồng bộ rồi mở lại Tạo trục.");
   Template=new ContentStore(appRoot).Template("ISO_QUANGANH");
   string indexFile=Path.Combine(root,"Catalog","resource-codes.json");
-  if(!File.Exists(indexFile))throw new CadException("AXIS_CODES","Mở thư viện trong app để cấp mã tài nguyên trước.");
+  if(!File.Exists(indexFile))throw new CadException("AXIS_CODES","Mở Thư viện QA trong AutoCAD và lưu danh mục để cấp mã tài nguyên.");
   var index=JObject.Parse(File.ReadAllText(indexFile));
   if(index.Value<int>("SchemaVersion")!=1)throw new CadException("AXIS_CODES","Phiên bản sổ mã không được hỗ trợ.");
   string stateFile=Path.Combine(root,"Catalog","sync","state.json");
@@ -108,7 +108,7 @@ internal sealed class AxisLibrary
   }
   // Preserve known prior layer/head choices; never guess which Dim style the user wants.
   string Id(string kind,string name)=>Options.FirstOrDefault(o=>o.Kind==kind&&o.Name==name)?.Id??"";
-  var head=Template.Blocks.FirstOrDefault(b=>b.Id=="QA_ATT_TRUC"&&b.Usage?.Role=="axisHead");
+  var head=Template.Blocks.FirstOrDefault(b=>b.Id=="QA_ATT_TRUC");
   return new(){AxisLayerId=Id("layers","QA_KT_Truc"),HeadLayerId=Id("layers","QA_KH_Truc Dinh Vi"),DimLayerId=Id("layers","QA_KT_Dim"),HeadBlockId=Id("blocks",head?.NativeSource?.BlockName??""),AttributeTag=head?.NativeSource?.LabelAttribute??""};
  }
  internal void Save(AxisLibrarySettings settings,bool single=false)
@@ -128,11 +128,14 @@ internal sealed class AxisLibrary
   LayerAsset Layer(string id){var option=Demand("layers",id);var layer=Template.Layers.SingleOrDefault(l=>l.Name==option.Name)??throw new CadException("AXIS_LAYER","Layer chưa khớp thư viện; đọc và đồng bộ trước.");management.Available("layers",JsonUtil.Hash(new[]{Template.Id,layer.Name}));return layer;}
   var selected=Demand("blocks",settings.HeadBlockId);
   var candidates=Template.Blocks.Where(b=>b.NativeSource?.BlockName==selected.Name).ToList();
-  var head=candidates.FirstOrDefault(b=>b.Usage?.Role=="axisHead")??candidates.FirstOrDefault()??throw new CadException("AXIS_HEAD","Block đã chọn chưa có trong thư viện.");
+  var head=candidates.OrderByDescending(b=>b.Id==selected.Name).ThenBy(b=>b.Id,StringComparer.Ordinal).FirstOrDefault()??throw new CadException("AXIS_HEAD","Block đã chọn chưa có trong thư viện.");
   management.Available("blocks",JsonUtil.Hash(new[]{Template.Id,head.Id}));
   string tag=settings.AttributeTag.Trim();
   if(tag==""||!(selected.Sync.Values["attributes"] as JArray??new()).OfType<JObject>().Any(a=>a.Value<string>("tag")==tag&&a.Value<bool>("constant")==false))throw new CadException("AXIS_ATTRIBUTE","Chọn đúng tag attribute không cố định của block đầu trục.");
   var copy=JObject.FromObject(head).ToObject<BlockAsset>()!;copy.NativeSource!.LabelAttribute=tag;
+  // The add-in's selected block, layer and ATT are authoritative. Legacy Skill
+  // role, review, layer and dynamic overrides must never control this command.
+  copy.Usage=null;
   var result=new AxisResolvedLibrary{Settings=settings,Template=Template,AxisLayer=Layer(settings.AxisLayerId),HeadLayer=Layer(settings.HeadLayerId),DimLayer=Layer(settings.DimLayerId),Head=copy};
   if(!single){
    result.BayDim=Demand("dims",settings.BayDimId);result.TotalDim=Demand("dims",settings.TotalDimId);

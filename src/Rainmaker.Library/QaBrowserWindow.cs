@@ -24,7 +24,7 @@ internal sealed partial class QaBrowserWindow : Window
     readonly ListBox list = new() { SelectionMode = SelectionMode.Extended };
     readonly StackPanel detail = new();
     readonly TextBox search = new() { MinWidth = 150 };
-    readonly ComboBox filter = new() { ItemsSource = new[] { "Đang dùng", "Chưa duyệt sử dụng", "Đã duyệt sử dụng", "Thùng rác", "Chỉ còn định nghĩa", "Đã mất trong CAD" }, SelectedIndex = 0, MinWidth = 155 };
+    readonly ComboBox filter = new() { ItemsSource = new[] { "Có trong CAD", "Mới / đã thay đổi", "Tất cả hiện trạng", "Thùng rác", "Chỉ còn định nghĩa", "Đã mất trong CAD" }, SelectedIndex = 0, MinWidth = 175 };
     readonly TextBlock status = new() { TextWrapping = TextWrapping.Wrap }, source = new() { TextWrapping = TextWrapping.Wrap };
     readonly WrapPanel toolbar = new();
     readonly Grid board = new();
@@ -37,13 +37,25 @@ internal sealed partial class QaBrowserWindow : Window
     readonly bool persistUi;
     int imageEpoch;
     string Source => state.Value<string>("source") ?? "";
-    IEnumerable<JObject> Rows => (state["items"] as JArray ?? new()).OfType<JObject>();
+    IEnumerable<JObject> Rows => ResourceRows((state["items"] as JArray ?? new()).OfType<JObject>(),kind);
+    // Keep legacy profiles on disk, but expose one native resource in the QA browser.
+    internal static IEnumerable<JObject> ResourceRows(IEnumerable<JObject> rows,string kind)
+    {
+        if(kind!="blocks")return rows;
+        return rows.GroupBy(r=>r.Value<string>("name")??r.Value<string>("resourceId")??"",StringComparer.OrdinalIgnoreCase).Select(g=>
+        {
+            var source=g.OrderByDescending(r=>r.Value<string>("resourceId")==r.Value<string>("name")).ThenBy(r=>r.Value<string>("resourceId"),StringComparer.Ordinal).First();
+            var row=(JObject)source.DeepClone();
+            row["displayName"]=row["management"]!.Value<string>("Name") is string alias&&alias!=""?alias:row.Value<string>("name");
+            return row;
+        });
+    }
     string UiFile => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Rainmaker", "Library", "ui.json");
     internal QaBrowserWindow(bool test=false)
     {
         persistUi=!test;
         if(!test)kind=Commands.Kind;
-        Title = "Rainmaker · Thư viện QA 1.6.0"; Width = 1440; Height = 880; MinWidth = 960; MinHeight = 620;
+        Title = "Rainmaker · Thư viện QA 1.7.0"; Width = 1440; Height = 880; MinWidth = 960; MinHeight = 620;
         WindowStartupLocation = WindowStartupLocation.CenterScreen; FontFamily = new FontFamily("Segoe UI"); FontSize = 13;
         Resources = Theme.Load(); SetResourceReference(BackgroundProperty, "ToolBackground"); SetResourceReference(ForegroundProperty, "ToolText");
         tree.SetResourceReference(BackgroundProperty,"ToolSurface");tree.SetResourceReference(ForegroundProperty,"ToolText");tree.SetResourceReference(BorderBrushProperty,"ToolBorder");
@@ -214,9 +226,8 @@ internal sealed partial class QaBrowserWindow : Window
             var m = row["management"]!; bool deleted = m["DeletedUtc"]?.Type != JTokenType.Null && m["DeletedUtc"] != null;
             if (filter.SelectedIndex == 3 ? !deleted : deleted) continue;
             string live=row.Value<string>("liveStatus")??"PRESENT";
-            if(filter.SelectedIndex!=3&&(filter.SelectedIndex==4?live!="DEFINITION_ONLY":filter.SelectedIndex==5?live!="MISSING":live is "DEFINITION_ONLY" or "MISSING"))continue;
-            bool reviewed=UseReviewed(row);
-            if (filter.SelectedIndex == 1 && reviewed || filter.SelectedIndex == 2 && !reviewed) continue;
+            if(filter.SelectedIndex!=3&&filter.SelectedIndex!=2&&(filter.SelectedIndex==4?live!="DEFINITION_ONLY":filter.SelectedIndex==5?live!="MISSING":live is "DEFINITION_ONLY" or "MISSING"))continue;
+            if(filter.SelectedIndex==1&&live is not ("NEW" or "CHANGED"))continue;
             if(!MatchesPattern(row))continue;
             if (query != "" && row.ToString().IndexOf(query, StringComparison.CurrentCultureIgnoreCase) < 0) continue;
             var content = new Grid { Margin = new Thickness(5), MinHeight = cards ? 200 : 44, Width=cards?175:double.NaN };
@@ -224,7 +235,7 @@ internal sealed partial class QaBrowserWindow : Window
             var image = new Image { Width = 165, Height = cards?110:0, Stretch = Stretch.Uniform, Margin = new Thickness(0, 0, 0, 8) }; content.Children.Add(image);
             var text = new StackPanel(); Grid.SetRow(text, 1); content.Children.Add(text);
             text.Children.Add(new TextBlock { Text = row.Value<string>("displayName"), TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold });
-            text.Children.Add(new TextBlock { Text = row.Value<string>("code") + " · " + (reviewed ? "Đã duyệt sử dụng" : "Chưa duyệt sử dụng"), Margin = new Thickness(0, 4, 0, 0),TextWrapping=TextWrapping.Wrap });
+            text.Children.Add(new TextBlock { Text = row.Value<string>("code"), Margin = new Thickness(0, 4, 0, 0),TextWrapping=TextWrapping.Wrap });
             if(state.Value<bool?>("live")==true)text.Children.Add(new TextBlock{Text=LiveLabel(row),TextWrapping=TextWrapping.Wrap});
             if(kind=="hatches")text.Children.Add(new TextBlock{Text=HatchSummary(row),TextWrapping=TextWrapping.Wrap});
             text.Children.Add(new TextBlock { Text = m.Value<string>("Purpose"), TextWrapping = TextWrapping.Wrap });
@@ -262,15 +273,14 @@ internal sealed partial class QaBrowserWindow : Window
         Label(row.Value<string>("displayName") ?? "", 20); Label(row.Value<string>("code") ?? "");
         Label("Tên trong DWG: " + row.Value<string>("name")); Label("ID ổn định: " + row.Value<string>("id"));
         if(state.Value<bool?>("live")==true)Label(LiveLabel(row));
-        Label(UseReviewed(row)?"Đã duyệt sử dụng":"Chưa duyệt sử dụng");
         Label("Công dụng: " + m.Value<string>("Purpose")); Label("Ghi chú: " + m.Value<string>("Notes"));
-        detail.Children.Add(Button("Hồ sơ / công dụng / duyệt", EditMetadata));
-        if(kind=="blocks")detail.Children.Add(Button("Cấu hình / duyệt sử dụng block",ConfigureBlock));
+        detail.Children.Add(Button("Tên / công dụng / ghi chú", EditMetadata));
         if(kind=="blocks"&&row.Value<string>("liveStatus") is not ("MISSING" or "DEFINITION_ONLY"))detail.Children.Add(Button("Chèn block vào bản vẽ hiện tại",InsertSelected));
         detail.Children.Add(Button("Sửa thông số trong DWG", () => EditCad(false)));
         Label("File nguồn: " + Path.GetFileName(Source)); Label("Đường dẫn: " + Source);
-        var parameters = Parameters(row["profile"]!);
-        detail.Children.Add(new Expander { Header = "Thông số đầy đủ", Content = parameters, IsExpanded = true, Margin = new Thickness(0, 14, 0, 0) });
+        var original=(JObject)row["profile"]!.DeepClone();original.Remove("Usage");
+        var parameters = Parameters(original);
+        detail.Children.Add(new Expander { Header = "Thông số tài nguyên", Content = parameters, IsExpanded = false, Margin = new Thickness(0, 14, 0, 0) });
     }
     static StackPanel Parameters(JToken value)
     {
@@ -293,30 +303,8 @@ internal sealed partial class QaBrowserWindow : Window
     {
         DemandLive();
         var row = Selected; if (row == null) return;
-        var p = MetadataRequest(row); var dialog = new QaForm("Hồ sơ " + row.Value<string>("code"), p, kind=="blocks"?new[] { "name", "purpose", "notes" }:new[] { "name", "purpose", "notes", "reviewed" });
+        var p = MetadataRequest(row); var dialog = new QaForm("Thông tin " + row.Value<string>("code"), p, new[] { "name", "purpose", "notes" });
         if (AcApp.ShowModalWindow(dialog) != true) return; await Api("manage", dialog.Value); await Load();
-    }
-    async Task ConfigureBlock()
-    {
-        DemandLive();
-        var row=Selected;if(row==null)return;
-        DemandPublished(row);
-        var usage=row["profile"]?["Usage"] as JObject??JObject.FromObject(new BlockUsage{Role="native"});
-        var layers=await Api("layers");var layerNames=layers["items"]!.OfType<JObject>().Select(r=>r.Value<string>("name")!).ToArray();
-        if(string.IsNullOrEmpty(usage.Value<string>("Layer")))usage["Layer"]=layerNames.FirstOrDefault()??"";
-        var specs=(row["profile"]?["NativeSource"]?["DynamicProperties"] as JArray??new()).OfType<JObject>().Where(p=>p.Value<bool?>("ReadOnly")!=true).ToArray();
-        var parameters=specs.Select(p=>p.Value<string>("Name")!).Prepend("").ToArray();
-        var options=new Dictionary<string,string[]>{["Layer"]=layerNames,["Role"]=new[]{"native","door","window","furniture","sanitary","axisHead"},["WidthParameter"]=parameters,["ThicknessParameter"]=parameters,["WidthBasis"]=new[]{"opening"}};
-        var form=new QaForm("Cấu hình block · "+row.Value<string>("code"),usage,usage.Properties().Where(p=>p.Value is JValue).Select(p=>p.Name).ToArray(),options);
-        if(AcApp.ShowModalWindow(form)!=true)return;
-        var values=usage["Values"] as JObject??new();
-        foreach(var spec in specs)if(values[spec.Value<string>("Name")!]==null&&spec["DefaultValue"] is JValue)values[spec.Value<string>("Name")!]=spec["DefaultValue"]!.DeepClone();
-        if(values.HasValues)
-        {
-            var dynamicForm=new QaForm("Giá trị tham số động",values,values.Properties().Where(p=>p.Value is JValue).Select(p=>p.Name).ToArray());
-            if(AcApp.ShowModalWindow(dynamicForm)!=true)return;form.Value["Values"]=dynamicForm.Value;
-        }
-        await Api("block-usage",new(){["resourceId"]=row["resourceId"]!.DeepClone(),["version"]=state["version"]!.DeepClone(),["usage"]=form.Value});await Load();
     }
     async Task MoveSelection()
     {

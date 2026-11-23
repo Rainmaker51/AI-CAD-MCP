@@ -2,7 +2,7 @@ param([Parameter(Mandatory=$true)][string]$BuildDirectory,[switch]$Apply)
 $ErrorActionPreference='Stop'
 $build=[IO.Path]::GetFullPath($BuildDirectory)
 $manifest=Get-Content -LiteralPath (Join-Path $build 'manifest.json') -Raw -Encoding UTF8|ConvertFrom-Json
-if($manifest.requiresHost -ne $false -or $manifest.version -notlike '1.6.*'){throw 'Choose a verified standalone QA 1.6 build'}
+if($manifest.requiresHost -ne $false -or $manifest.version -notmatch '^1\.[67]\.\d+$'){throw 'Choose a verified standalone QA 1.6/1.7 build'}
 $package=[IO.Path]::GetFullPath((Join-Path $build 'package'))
 if(@(Get-ChildItem -LiteralPath $package -File).Count -ne @($manifest.files).Count){throw 'Package contains unlisted files'}
 foreach($entry in $manifest.files){

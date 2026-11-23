@@ -155,6 +155,10 @@ public sealed partial class NativeTests
             var row=new Newtonsoft.Json.Linq.JObject{["resourceId"]="QA_TEST",["metadataId"]="test",["id"]=Guid.NewGuid().ToString("N"),["code"]="BLK-0001",["name"]="QA_KT_CUA",["displayName"]="Cửa thư viện",["management"]=Newtonsoft.Json.Linq.JObject.FromObject(new LibraryLabel{Purpose="Mẫu cửa kiến trúc",Reviewed=true}),["profile"]=new Newtonsoft.Json.Linq.JObject{["Loại"]="Block động",["Đơn vị"]="mm"},["image"]=""};
             string parent=Guid.NewGuid().ToString("N"),child=Guid.NewGuid().ToString("N");
             row["management"]!["GroupId"]=child;
+            var duplicate=(Newtonsoft.Json.Linq.JObject)row.DeepClone();duplicate["resourceId"]="QA_DOOR_PROFILE";duplicate["profile"]!["Usage"]=new Newtonsoft.Json.Linq.JObject{["Role"]="door",["Reviewed"]=true};
+            var cards=QaBrowserWindow.ResourceRows(new[]{duplicate,row},"blocks").ToList();
+            Check(cards.Count==1&&cards[0].Value<string>("name")=="QA_KT_CUA","QA must show one native card, not legacy usage profiles");
+            Check(duplicate["profile"]!["Usage"]!.Value<string>("Role")=="door","Collapsing cards must preserve old profile data");
             window.Bind(new Newtonsoft.Json.Linq.JObject{["source"]="C:/Library/ISO_QuangAnh_ThuVien.dwg",["revision"]=1,["version"]="1.2.26",["groups"]=Newtonsoft.Json.Linq.JArray.FromObject(new[]{new LibraryGroup{Id=parent,Name="Kiến trúc"},new LibraryGroup{Id=child,Name="Cửa",ParentId=parent}}),["items"]=new Newtonsoft.Json.Linq.JArray(row),["authority"]=new Newtonsoft.Json.Linq.JObject{["editor"]="QA"}});
             var tree=(System.Windows.Controls.TreeView)typeof(QaBrowserWindow).GetField("tree",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(window)!;
             typeof(QaBrowserWindow).GetMethod("SelectTreeGroup",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.Invoke(null,new object[]{tree,child});
