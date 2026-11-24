@@ -79,7 +79,7 @@ public sealed class Commands
     {
         if(doc.Database.Insunits!=UnitsValue.Millimeters)throw new CadException("UNITS","Thư viện cần đặt đơn vị mm trước khi khởi tạo.");
         var items=LibraryFrames.ManagedItems(doc.Database,tx);var nodes=LibraryFrames.Nodes(doc.Database,tx);foreach(string kind in LibrarySyncRules.Kinds)LibraryFrames.Ensure(nodes,kind,"");LibraryFrames.Save(doc.Database,tx,nodes);
-        LibrarySyncNative.ArrangeDrawing(doc.Database,tx,items);doc.Editor.WriteMessage("\nĐã tạo 5 khu quản lý thư viện. Nội dung chưa nhận vào nhóm được giữ nguyên.");
+        LibrarySyncNative.ArrangeExistingDrawing(doc.Database,tx,items,"all");doc.Editor.WriteMessage("\nĐã tạo 5 khu quản lý thư viện. Nội dung chưa nhận vào nhóm được giữ nguyên.");
     },true);
 
     static LibraryFrameNode ChooseGroup(Database db,Transaction tx,string title)

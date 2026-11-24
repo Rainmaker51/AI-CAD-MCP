@@ -15,10 +15,15 @@ internal static class QaCadEditor
     internal static void Open(string source)
     {
         var docs = AcApp.DocumentManager;
+        if(docs.MdiActiveDocument is Document active&&Same(active.Name,source))return;
         var found = docs.Cast<Autodesk.AutoCAD.ApplicationServices.Document>().FirstOrDefault(d => Same(d.Name, source));
-        if (found != null) docs.MdiActiveDocument = found;
-        else docs.Open(source, false);
+        if (found != null) { if(docs.MdiActiveDocument!=found)Activate(found); }
+        else OpenNew(source);
     }
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    static void Activate(Document document)=>AcApp.DocumentManager.MdiActiveDocument=document;
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    static void OpenNew(string source)=>AcApp.DocumentManager.Open(source,false);
     static bool Same(string a, string b) => string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
     internal static void Edit(string source, LibrarySyncItem item, List<LibrarySyncItem> hints)
     {
@@ -31,7 +36,8 @@ internal static class QaCadEditor
     }
     internal static void DemandSaved(string source)
     {
-        var open = AcApp.DocumentManager.Cast<Autodesk.AutoCAD.ApplicationServices.Document>().FirstOrDefault(d => Same(d.Name, source));
+        var active=AcApp.DocumentManager.MdiActiveDocument;
+        var open=active!=null&&Same(active.Name,source)?active:AcApp.DocumentManager.Cast<Document>().FirstOrDefault(d=>Same(d.Name,source));
         if (open != null && Convert.ToInt32(AcApp.GetSystemVariable("DBMOD")) != 0 && AcApp.DocumentManager.MdiActiveDocument == open)
             throw new InvalidOperationException("DWG có thay đổi chưa lưu. Nhấn Ctrl+S trên DWG nguồn rồi đọc kiểm tra lại.");
         if (open != null && AcApp.DocumentManager.MdiActiveDocument != open)
@@ -65,7 +71,8 @@ internal static class QaCadEditor
         var doc = Commands.Document;
         if (!Same(doc.Name, source)) throw new InvalidOperationException("Mở đúng DWG nguồn trước khi bố trí.");
         using var locked = doc.LockDocument(); using var tx = doc.Database.TransactionManager.StartTransaction();
-        var actual = LibrarySyncNative.ReadDrawing(doc.Database, tx, items);
+        var nativeHints=items.Select(i=>{var copy=i.Copy();copy.Handle="";return copy;}).ToList();
+        var actual = LibrarySyncNative.ReadDrawing(doc.Database, tx, nativeHints);
         var selected = new List<LibrarySyncItem>();
         foreach (var hint in items)
         {

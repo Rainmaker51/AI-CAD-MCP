@@ -44,7 +44,7 @@ internal static class QaCadSnapshot
         BlockPreviews.Generate(folder);
     }
     internal static bool Same(string a,string b)=>string.Equals(Path.GetFullPath(a),Path.GetFullPath(b),StringComparison.OrdinalIgnoreCase);
-    internal static Document? OpenDocument(string source)=>AcApp.DocumentManager.Cast<Document>().SingleOrDefault(d=>Same(d.Name,source));
+    internal static Document? OpenDocument(string source)=>AcApp.DocumentManager.MdiActiveDocument is Document active&&Same(active.Name,source)?active:AcApp.DocumentManager.Cast<Document>().SingleOrDefault(d=>Same(d.Name,source));
     internal static JObject Capture(InstallConfig config,string source,List<LibrarySyncItem> hints,Database? fixtureDatabase=null)
     {
         string id=Guid.NewGuid().ToString("N"),folder=Path.Combine(config.DataRoot,"library-sync",id);Directory.CreateDirectory(folder);

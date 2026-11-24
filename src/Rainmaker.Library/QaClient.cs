@@ -58,6 +58,10 @@ internal sealed class QaClient:IDisposable
             else if(action=="live/register")result=repository.RegisterLive(p.Value<string>("id")??"");
             else if(action=="live/prepare")result=repository.PrepareLiveApproval(p);
             else if(action=="approve")result=await repository.ApproveCad(p,ct);
+            else if(action=="mutation-check")result=repository.CheckQaRemoval(p);
+            else if(action=="remap-consumers")result=repository.RemapQaConsumers(p);
+            else if(action=="metadata-check")result=repository.CheckQaMetadata(p);
+            else if(action=="validate-view")result=repository.ValidateQaView(p);
             else if(action.StartsWith("live/",StringComparison.Ordinal))
             {
                 var parts=action.Split('/');if(parts.Length!=3)throw new CadException("QA_SNAPSHOT","Địa chỉ bản đọc không hợp lệ.");

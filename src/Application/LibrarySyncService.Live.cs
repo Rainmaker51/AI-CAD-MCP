@@ -36,7 +36,7 @@ public partial class LibraryRepository
         foreach(var change in differences.Where(d=>d.Cad?.Kind=="blocks"&&d.App==null))
             if(capture["presence"]?[change.Id]?.Value<bool?>("samplePresent")==false){change.Status="CAD_DEFINITION_ONLY";change.Suggested="keep";}
         Json.Atomic(Path.Combine(Job(id),"live-review.json"),new{appHash=AppHash(),signature=capture.Value<string>("signature"),differences});
-        return new JObject{["id"]=id,["source"]=Source,["signature"]=capture["signature"]!.DeepClone(),["differences"]=JArray.FromObject(differences)};
+        return new JObject{["id"]=id,["source"]=Source,["signature"]=capture["signature"]!.DeepClone(),["appHash"]=AppHash(),["revision"]=state.Revision,["differences"]=JArray.FromObject(differences)};
     }
     public object PrepareLiveApproval(JObject request)
     {

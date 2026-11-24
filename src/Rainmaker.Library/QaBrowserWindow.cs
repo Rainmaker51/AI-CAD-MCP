@@ -55,7 +55,7 @@ internal sealed partial class QaBrowserWindow : Window
     {
         persistUi=!test;
         if(!test)kind=Commands.Kind;
-        Title = "Rainmaker · Thư viện QA 1.7.0"; Width = 1440; Height = 880; MinWidth = 960; MinHeight = 620;
+        Title = "Rainmaker · Thư viện QA 1.9.0"; Width = 1440; Height = 880; MinWidth = 960; MinHeight = 620;
         WindowStartupLocation = WindowStartupLocation.CenterScreen; FontFamily = new FontFamily("Segoe UI"); FontSize = 13;
         Resources = Theme.Load(); SetResourceReference(BackgroundProperty, "ToolBackground"); SetResourceReference(ForegroundProperty, "ToolText");
         tree.SetResourceReference(BackgroundProperty,"ToolSurface");tree.SetResourceReference(ForegroundProperty,"ToolText");tree.SetResourceReference(BorderBrushProperty,"ToolBorder");
@@ -75,18 +75,18 @@ internal sealed partial class QaBrowserWindow : Window
         }
         heading.Children.Add(toolbar);
         toolbar.Children.Add(Button("Mở DWG nguồn", () => { QaCadEditor.Open(Source); return Task.CompletedTask; }));
-        toolbar.Children.Add(Button("Lưu danh mục vào kho", Inspect));
-        toolbar.Children.Add(Button("Thêm mẫu / kiểu", () => EditCad(true)));
+        toolbar.Children.Add(Button("Quét thay đổi / đối chiếu", ScanCadChanges));
+        toolbar.Children.Add(Button("Xử lý cập nhật", ShowRecovery));
         toolbar.Children.Add(Button("Thêm nhóm", () => EditGroup(false)));
         toolbar.Children.Add(Button("Đổi tên / chuyển nhóm", () => EditGroup(true)));
         toolbar.Children.Add(Button("Xóa nhóm", RemoveGroup));
         toolbar.Children.Add(Button("Làm mới CAD", RefreshLive));
         heading.Children.Add(BuildLayoutSection());
-        var arrange=Button("Áp dụng nhóm / xếp gọn CAD", () => {
+        var arrange=Button("Áp dụng nhóm / xếp gọn CAD", async () => {
             DemandLive();
             var items=Rows.Where(r=>r["item"] is JObject && r["management"]?["DeletedUtc"]?.Type==JTokenType.Null).Select(r=>{var item=r["item"]!.ToObject<LibrarySyncItem>()!;item.Group=GroupPath(r["management"]!.Value<string>("GroupId")??"");return item;}).ToList();
             var groupPaths=(state["groups"] as JArray??new()).OfType<JObject>().Select(g=>GroupPath(g.Value<string>("Id")!)).ToList();
-            var report=QaCadEditor.Arrange(Source,kind,items,groupPaths); status.Text=$"Đã bố trí {report.ExistingSamples} mẫu hiện có. {report.MissingSampleIds.Count} mục thiếu mẫu được giữ nguyên; không tự chèn lại. Lưu DWG bằng Ctrl+S.";RefreshCadContext();return Task.CompletedTask;
+            await MutateAndPublish("arrange",(db,tx)=>QaCadEditor.Arrange(Source,kind,items,groupPaths));RefreshCadContext();
         });
         arrange.Tag="arrange";layoutActions.Children.Add(arrange);layoutButtons.Add(arrange);
         toolbar.Children.Add(Button("Tạo ảnh block từ CAD", async () => { if(kind!="blocks")throw new InvalidOperationException("Chọn tab Block để tạo ảnh.");await RefreshLive();QaCadSnapshot.Previews(client!.Config,capture!,Rows);images.Clear();await Load();status.Text="Đã tạo ảnh 240 × 180 từ hiện trạng CAD; chỉ lưu bộ nhớ đệm trên máy này."; }));
@@ -105,7 +105,7 @@ internal sealed partial class QaBrowserWindow : Window
         search.ToolTip = "Tìm mã, tên, công dụng, thông số hoặc layer"; System.Windows.Automation.AutomationProperties.SetName(search, "Tìm thư viện"); Grid.SetRow(search,1);filters.Children.Add(search); Grid.SetColumn(filter, 1);Grid.SetRow(filter,1); filter.Margin = new Thickness(8, 0, 0, 0); filters.Children.Add(filter); DockPanel.SetDock(filters, Dock.Top); middle.Children.Add(filters);
         var selection = new WrapPanel(); DockPanel.SetDock(selection, Dock.Bottom); middle.Children.Add(selection);
         selection.Children.Add(Button("Chuyển nhóm mục chọn", MoveSelection));
-        selection.Children.Add(Button("Thùng rác / khôi phục", TrashSelection));
+        selection.Children.Add(Button("Loại hồ sơ đã mất", RemoveMissingProfiles));
         middle.Children.Add(list); PanelAt(middle, 2);
         PanelAt(new ScrollViewer { Content = detail, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(12) }, 4);
         foreach (int column in new[] { 1, 3 })
@@ -204,6 +204,9 @@ internal sealed partial class QaBrowserWindow : Window
         }
         AddGroups(tree, "", new()); loading = false; BindHatchControls();RenderList();RefreshCadContext();
         status.Text = $"{LibraryFrames.KindName(kind)} · {Rows.Count()} mục · danh mục kho v{state.Value<string>("version")} · " + (state["authority"]?.Value<string>("editor") == "QA" ? "Chỉnh sửa tại QA" : "Chưa chuyển app sang chỉ xem");
+        int pending=Rows.Count(r=>r.Value<string>("liveStatus") is "NEW" or "CHANGED" or "MISSING" or "DEFINITION_ONLY");
+        if(pending>0)status.Text+=" · Chưa khớp CAD/kho: "+pending+" mục";
+        if(client!=null&&File.Exists(PendingFile))status.Text+=" · Có thao tác chưa hoàn tất — nhấn Xử lý cập nhật";
     }
     bool InGroup(string id)
     {
@@ -276,7 +279,7 @@ internal sealed partial class QaBrowserWindow : Window
         Label("Công dụng: " + m.Value<string>("Purpose")); Label("Ghi chú: " + m.Value<string>("Notes"));
         detail.Children.Add(Button("Tên / công dụng / ghi chú", EditMetadata));
         if(kind=="blocks"&&row.Value<string>("liveStatus") is not ("MISSING" or "DEFINITION_ONLY"))detail.Children.Add(Button("Chèn block vào bản vẽ hiện tại",InsertSelected));
-        detail.Children.Add(Button("Sửa thông số trong DWG", () => EditCad(false)));
+        detail.Children.Add(new TextBlock{Text="Thêm/sửa thông số trực tiếp trên CAD. Ctrl+S rồi Quét thay đổi / đối chiếu.",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,8,0,8)});
         Label("File nguồn: " + Path.GetFileName(Source)); Label("Đường dẫn: " + Source);
         var original=(JObject)row["profile"]!.DeepClone();original.Remove("Usage");
         var parameters = Parameters(original);
@@ -303,23 +306,24 @@ internal sealed partial class QaBrowserWindow : Window
     {
         DemandLive();
         var row = Selected; if (row == null) return;
-        var p = MetadataRequest(row); var dialog = new QaForm("Thông tin " + row.Value<string>("code"), p, new[] { "name", "purpose", "notes" });
-        if (AcApp.ShowModalWindow(dialog) != true) return; await Api("manage", dialog.Value); await Load();
+        var p = MetadataRequest(row); var dialog = new QaForm("Thông tin " + row.Value<string>("code"), p, new[] { "name", "purpose", "notes", "reviewed" });
+        if (AcApp.ShowModalWindow(dialog) != true) return; await SyncMetadata(new(){dialog.Value});
     }
     async Task MoveSelection()
     {
         DemandLive();
         var rows = SelectedRows; if (rows.Count == 0) throw new InvalidOperationException("Chọn một hoặc nhiều mục trong danh sách.");
         var dialog = GroupChoice("Chuyển " + rows.Count + " mục sang nhóm", ""); if (AcApp.ShowModalWindow(dialog) != true) return;
-        foreach (var row in rows) { var p = MetadataRequest(row); p["groupId"] = dialog.Choice; await Api("manage", p); }
-        await Load();
+        var requests=new List<JObject>();foreach(var row in rows){var p=MetadataRequest(row);p["groupId"]=dialog.Choice;requests.Add(p);}await SyncMetadata(requests);
     }
     async Task TrashSelection()
     {
+        if(filter.SelectedIndex!=3){await DeleteSelectedResources();return;}
         DemandLive();
         var rows = SelectedRows; if (rows.Count == 0) return;
         bool restore = filter.SelectedIndex == 3;
         if (MessageBox.Show(this, (restore ? "Khôi phục " : "Đưa vào thùng rác ") + rows.Count + " hồ sơ? Mẫu trong DWG được giữ nguyên.", "Thư viện QA", MessageBoxButton.OKCancel) != MessageBoxResult.OK) return;
+        if(rows.Any(r=>r.Value<string>("liveStatus") is "MISSING" or "DEFINITION_ONLY"))throw new InvalidOperationException("Mẫu không còn trong CAD. Khôi phục mẫu từ bản sao DWG trước khi khôi phục danh mục.");
         foreach (var row in rows) { var p = MetadataRequest(row); p["action"] = restore ? "restore" : "delete"; await Api("manage", p); }
         await Load();
     }
@@ -338,16 +342,22 @@ internal sealed partial class QaBrowserWindow : Window
         string? name = NameDialog.Ask("Nhóm " + LibraryFrames.KindName(kind), "Tên nhóm", current?.Value<string>("Name") ?? ""); if (string.IsNullOrWhiteSpace(name)) return;
         var parent = GroupChoice("Nhóm cha", edit ? current!.Value<string>("ParentId") ?? "" : group == "*" ? "" : group);
         if (AcApp.ShowModalWindow(parent) != true) return;
-        await Api("group", new() { ["kind"] = kind, ["id"] = edit ? group : "", ["name"] = name, ["parentId"] = parent.Choice }); await Load();
+        await SyncGroup(new() { ["kind"] = kind, ["id"] = edit ? group : "", ["name"] = name, ["parentId"] = parent.Choice });
     }
     async Task RemoveGroup()
     {
         DemandLive();
         if (group is "*" or "") throw new InvalidOperationException("Chọn nhóm cần xóa.");
         if (MessageBox.Show(this, "Xóa nhóm? Nhóm con chuyển lên nhóm cha, hồ sơ bên trong chuyển về chưa phân nhóm.", "Xóa nhóm", MessageBoxButton.OKCancel) != MessageBoxResult.OK) return;
-        await Api("group", new() { ["kind"] = kind, ["id"] = group, ["action"] = "remove" }); group = "*"; await Load();
+        await SyncGroup(new() { ["kind"] = kind, ["id"] = group, ["action"] = "remove" }); group = "*"; await Load();
     }
     async Task EditCad(bool create)
+    {
+        try{await EditCadCore(create);}
+        catch(OperationCanceledException){throw;}
+        catch(Exception error){MessageBox.Show(this,error.Message,"Chưa cập nhật thư viện",MessageBoxButton.OK,MessageBoxImage.Warning);throw;}
+    }
+    async Task EditCadCore(bool create)
     {
         DemandLive();
         var row = Selected;
@@ -355,18 +365,17 @@ internal sealed partial class QaBrowserWindow : Window
             var file=new Microsoft.Win32.OpenFileDialog{Title="Chọn DWG chứa block",Filter="AutoCAD DWG|*.dwg"};if(file.ShowDialog(this)!=true)return;
             string[] names=QaCadEditor.BlockNames(file.FileName);if(names.Length==0)throw new InvalidOperationException("DWG không có định nghĩa block có tên. Tạo block trong CAD trước khi nhập.");
             var choose=new QaChoice("Block cần nhập",names.Select(n=>(n,n)).ToArray(),names[0]);if(AcApp.ShowModalWindow(choose)!=true)return;
-            QaCadEditor.ImportBlock(Source,file.FileName,choose.Choice,group=="*"?"":GroupPath(group),Rows.Where(r=>r["item"] is JObject).Select(r=>r["item"]!.ToObject<LibrarySyncItem>()!).ToList());
-            await RefreshLive();status.Text="Đã thêm block và mẫu trong DWG. Lưu Ctrl+S rồi lưu danh mục vào kho.";return;
+            await MutateAndPublish("import-block",(db,tx)=>QaCadEditor.ImportBlock(Source,file.FileName,choose.Choice,group=="*"?"":GroupPath(group),this.hints));return;
         }
         if (!create && row?["item"] is not JObject) throw new InvalidOperationException("Tài nguyên chưa được đối chiếu. Lưu nguồn và đọc kiểm tra trước.");
         var item = !create ? row!["item"]!.ToObject<LibrarySyncItem>()! : new LibrarySyncItem { Id = Guid.NewGuid().ToString("N"), Kind = kind, Values = Defaults(kind), Group = group == "*" ? "" : GroupPath(group) };
+        if(!create&&item.Values["qaDisplayName"]==null&&row!["management"]?.Value<string>("Name") is string alias&&alias!=""&&alias!=item.Name)item.Values["qaDisplayName"]=alias;
         var editable = kind switch { "blocks" => Array.Empty<string>(), "layers" => new[] { "color", "rgb", "lineWeight", "lineType", "plottable" }, "texts" => new[] { "font", "bigFont", "height", "widthFactor", "obliqueAngle", "vertical" }, "dims" => new[] { "textStyle", "annotative", "textHeight", "arrowSize", "scale", "linearFactor", "precision", "extensionOffset", "extensionBeyond", "baselineSpacing", "textGap", "rounding", "unitFormat", "angularPrecision", "zeroSuppression" }, _ => new[] { "pattern", "type", "scale", "angle", "layer", "color", "rgb", "spacing", "doublePattern" } };
         var data = new JObject { ["name"] = item.Name }; foreach (var p in item.Values.Properties().Where(p => editable.Contains(p.Name) && p.Value is JValue)) data[p.Name] = p.Value.DeepClone();
         var form = new QaForm((create ? "Thêm " : "Sửa ") + LibraryFrames.KindName(kind) + " trong DWG", data, data.Properties().Select(p => p.Name).ToArray());
         if (AcApp.ShowModalWindow(form) != true) return;
         item.Name = form.Value.Value<string>("name") ?? ""; foreach (var p in form.Value.Properties().Where(p => p.Name != "name")) item.Values[p.Name] = p.Value.DeepClone();
-        var hints = Rows.Where(r => r["item"] is JObject).Select(r => r["item"]!.ToObject<LibrarySyncItem>()!).ToList();
-        QaCadEditor.Edit(Source, item, hints); await RefreshLive();status.Text = "Đã sửa trong DWG. Lưu Ctrl+S rồi lưu danh mục để các công cụ dùng bản mới.";
+        await MutateAndPublish("edit-resource",(db,tx)=>LibrarySyncNative.EditResource(db,tx,item,this.hints));
     }
     static JObject Defaults(string kind) => kind switch {
         "layers" => JObject.Parse("{color:7,lineWeight:25,lineType:'Continuous',plottable:true}"),
@@ -375,16 +384,7 @@ internal sealed partial class QaBrowserWindow : Window
         _ => JObject.Parse("{pattern:'SOLID',type:'PreDefined',scale:1,angle:0,layer:'0',color:256,spacing:1,doublePattern:false}") };
     async Task Inspect()
     {
-        await RefreshLive();
-        var review = await Api("live/register", new(){["id"]=capture!["id"]!.DeepClone()});
-        var differences = (review["differences"] as JArray ?? new()).OfType<JObject>().Where(d => d.Value<string>("Status") is not ("MATCH" or "CAD_DEFINITION_ONLY")).ToList();
-        if(differences.Count==0){status.Text="Hiện trạng CAD khớp danh mục kho; không có thay đổi cần duyệt.";return;}
-        var dialog = new QaReview(differences); if (AcApp.ShowModalWindow(dialog) != true) { status.Text = "Đã kiểm tra; chưa duyệt thay đổi."; return; }
-        QaCadEditor.DemandSaved(Source);
-        var saved=QaCadSnapshot.CaptureSaved(client!.Config,Source,hints);
-        var prepared=await Api("live/prepare",new(){["reviewId"]=review["id"]!.DeepClone(),["savedId"]=saved["id"]!.DeepClone()});
-        await Api("approve", new() { ["id"] = prepared["id"]!.DeepClone(), ["choices"] = dialog.Choices }); await RefreshLive();
-        status.Text = "Đã duyệt các mục đã chọn vào kho. DWG nguồn không bị ghi đè.";
+        await ScanCadChanges();
     }
     static void DemandPublished(JObject row){if(row.Value<bool?>("published")==false)throw new InvalidOperationException("Mục mới trong CAD. Lưu DWG và dùng Lưu danh mục vào kho trước khi chỉnh hồ sơ sử dụng.");}
     void DemandLive(){if(capture==null)throw new InvalidOperationException("Đang xem danh mục kho. Làm mới CAD thành công trước khi chỉnh sửa.");}

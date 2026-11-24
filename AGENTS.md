@@ -6,6 +6,8 @@ Khi phát triển, sửa lỗi, build hoặc bàn giao add-in .NET của dự á
 
 Giao diện add-in mới phải theo Axis, gồm cả màu sắc, bố cục, kiểu điều khiển và tương tác; đọc `docs/ADDIN-UI-STANDARD.md`. Dùng theme dark hiện có, bảng thông số gọn, nhãn rõ, nút chính ở cuối bảng; nếu có preview thì dùng bố cục hai vùng co kéo và nhớ tỷ lệ theo máy. Không tự thiết kế một phong cách khác hoặc đổi giao diện add-in cũ khi chưa được yêu cầu.
 
+Add-in mới dùng Block, Layer, Hatch, Text hoặc Dim của kho phải đọc `docs/LIBRARY-CONSUMER-STANDARD.md` và `docs/RESOURCE-IDENTIFIERS.md`. QA quản lý thư viện; add-in tiêu thụ chỉ đọc bản đã xuất và ghi lựa chọn của chính nó theo ID ổn định. Cấu hình liên kết phải được QA nhận diện để kiểm tra xóa/gộp; nạp lại lựa chọn ở lần mở/triển khai sau, không phục hồi ID đã loại từ cache. Đối chiếu giới hạn hiện tại về phụ thuộc, journal và skill; không tự giả định API chung hoặc tự chuyển đổi add-in cũ.
+
 1. Đọc `docs/ADDIN-DEVELOPMENT-WORKFLOW.md`. Nếu có `warehouse.local.json`, lấy trường `path` rồi đọc thêm `Tools/dotnet/QUY_TRINH_PHAT_TRIEN_ADDIN.md` và README của add-in trong `_Development` ở kho đó. Không hardcode đường dẫn kho của máy khác.
 2. Đối chiếu `Tools/catalog.json` để biết gói Manager đang chọn; không suy ra từ version cao nhất hoặc ngày tệp.
 3. Sửa mã nguồn trong repo. Gói bàn giao và các version phát triển đặt trong `Tools/dotnet/_Development/<TênAddin>/versions/<version>/build-<fingerprint>/`; mỗi build có `package/`, manifest và ghi chú/kiểm thử. Build tạm đặt dưới `working/` của đúng add-in. Không trả gói cuối ra Desktop, Temp hoặc nhiều thư mục tùy ý.

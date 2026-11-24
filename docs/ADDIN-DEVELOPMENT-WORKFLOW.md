@@ -8,6 +8,8 @@ Khi bắt đầu một yêu cầu phát triển add-in, đọc file này và `RE
 
 Khi tạo mới hoặc thiết kế giao diện, đọc thêm `docs/ADDIN-UI-STANDARD.md`: dùng giao diện Axis làm chuẩn cả màu, bố cục và điều khiển. Đây là yêu cầu của dự án, không phải chỉ gợi ý thẩm mỹ; không tự chuyển đổi giao diện add-in cũ ngoài phạm vi được giao.
 
+Khi add-in mới sử dụng tài nguyên kho, đọc `docs/LIBRARY-CONSUMER-STANDARD.md` và `docs/RESOURCE-IDENTIFIERS.md`. Trong đầu vào và nghiệm thu phải chỉ rõ vai trò tài nguyên, cấu hình theo Manager ID, cách nạp lại sau xóa/gộp, chính sách khi nguồn chưa hoàn tất cập nhật và giới hạn kiểm tra phụ thuộc. Chỉ sửa tài liệu không làm các add-in cũ tự có các khả năng này.
+
 Mã nguồn chính nằm trong repo Git AI-CAD-MCP. Thư mục phát triển trong kho dùng để lưu gói DLL, thông tin build, ghi chú và bằng chứng kiểm thử theo từng add-in/phiên bản. Không tạo một bản source chỉnh sửa độc lập ngoài Git. Nếu đang làm dở, phải bàn giao commit hoặc bản vá cùng commit gốc để có thể tái tạo build.
 
 Đọc thêm `docs/TEST-ARTIFACT-LIFECYCLE.md` về vòng đời dữ liệu kiểm thử. Sau mỗi phiên phải giữ bằng chứng cần thiết, xác minh bản bàn giao và dọn dữ liệu tạm của phiên, kèm thống kê dung lượng. Profile AutoCAD/Host thử nghiệm dùng thư mục cục bộ `.tools/test-runs/<run-id>`, không sao chép hàng loạt vào kho đồng bộ.

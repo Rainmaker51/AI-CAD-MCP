@@ -43,7 +43,7 @@ if(args.Length>1&&(args[0]=="--verify-snapshot"||args[0]=="--verify-native"))
 
 void Check(bool value, string message) { if (!value) throw new Exception(message); }
 async Task Reject(Func<Task> work, string code) { try { await work(); } catch (CadException e) when (e.Code == code) { return; } throw new Exception("Expected " + code); }
-string root = Path.Combine(Path.GetTempPath(), "qa-library-tests-" + Guid.NewGuid().ToString("N"));
+string root = Path.Combine(Environment.GetEnvironmentVariable("QALIB_TEST_PARENT")??Path.GetTempPath(), "qa-library-tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
 var config = new InstallConfig { ContentRoot = root, DataRoot = Path.Combine(root, "data") };
 Directory.CreateDirectory(config.DataRoot);
@@ -166,6 +166,54 @@ string settingsFile=Path.Combine(root,"Catalog","addin-settings","rainmaker-axis
 var noDim=current.Where(i=>i.Id!=dim.Id).ToList();string removal=Review(noDim);
 await Reject(async()=>await sync.ApproveCad(new(){["id"]=removal,["choices"]=new JObject{[dim.Id]="remove"}},CancellationToken.None),"DEPENDENCY_IMPACT");
 File.Delete(settingsFile);
+// A merge preflight may remap registered resource IDs, but deletion cannot bypass consumers.
+current=JObject.FromObject(sync.State())["items"]!.ToObject<List<LibrarySyncItem>>()!;
+var mergeTarget=current.Single(i=>i.Id==hatch.Id).Copy();mergeTarget.Id=Guid.NewGuid().ToString("N");mergeTarget.Handle="D";mergeTarget.Name="QA_MERGE_TARGET";
+var withTarget=current.Concat(new[]{mergeTarget}).ToList();string addTarget=Review(withTarget);
+await sync.ApproveCad(new(){["id"]=addTarget,["choices"]=new JObject{[mergeTarget.Id]="cad"}},CancellationToken.None);
+Json.Atomic(settingsFile,new{HatchId=hatch.Id,Unrelated="KEEP"});
+var mergeState=JObject.FromObject(sync.State());int mergeRevision=mergeState.Value<int>("revision");
+await Reject(()=>{sync.CheckQaRemoval(new(){["revision"]=mergeRevision,["ids"]=new JArray(hatch.Id)});return Task.CompletedTask;},"DEPENDENCY_IMPACT");
+sync.CheckQaRemoval(new(){["revision"]=mergeRevision,["ids"]=new JArray(hatch.Id),["target"]=mergeTarget.Id});
+var remapRequest=new JObject{["operation"]=Guid.NewGuid().ToString("N"),["ids"]=new JArray(hatch.Id),["target"]=mergeTarget.Id};
+sync.RemapQaConsumers(remapRequest);sync.RemapQaConsumers(remapRequest);
+var remapped=Json.Read<JObject>(File.ReadAllText(settingsFile));Check(remapped.Value<string>("HatchId")==mergeTarget.Id&&remapped.Value<string>("Unrelated")=="KEEP","Consumer remap lost unrelated settings");
+File.Delete(settingsFile);string removeTarget=Review(current);
+await sync.ApproveCad(new(){["id"]=removeTarget,["choices"]=new JObject{[mergeTarget.Id]="remove"}},CancellationToken.None);
+Console.WriteLine("PASS: deletion dependency preflight, merge consumer remapping, idempotent retry and preserved unrelated settings");
+// Rename the same layer repeatedly; one active entry and its stable code must survive.
+string originalLayerName=JObject.FromObject(sync.State())["items"]!.ToObject<List<LibrarySyncItem>>()!.Single(i=>i.Id==layer.Id).Name;
+string layerCode=JObject.FromObject(qa.Read("layers"))["items"]!.Single().Value<string>("code")!;
+foreach(string nextName in new[]{"QA_LAYER_RENAME_1","QA_LAYER_RENAME_2",originalLayerName})
+{
+    var next=JObject.FromObject(sync.State())["items"]!.ToObject<List<LibrarySyncItem>>()!;next.Single(i=>i.Id==layer.Id).Name=nextName;
+    string renameReview=Review(next);await sync.ApproveCad(new(){["id"]=renameReview,["choices"]=new JObject{[layer.Id]="cad"}},CancellationToken.None);
+    var view=JObject.FromObject(qa.Read("layers"));Check(view["items"]!.Count()==1&&view["items"]![0]!.Value<string>("name")==nextName,"Layer rename left a stale/duplicate catalog entry");
+    Check(view["items"]![0]!.Value<string>("code")==layerCode,"Layer rename changed stable code");
+}
+Console.WriteLine("PASS: repeated layer rename preserves one catalog entry, stable ID/code and dependent references");
+// Durable recovery never treats an in-memory clone signature as saved-DWG proof.
+var qaJournal=new QaUpdateJournal(config);byte[] sourceBeforeJournal=File.ReadAllBytes(source);
+var journalStateHash=Json.FileHash(Path.Combine(root,"Catalog","sync","state.json"));
+using(qaJournal.Lock())
+{
+    await Reject(()=>{using var second=qaJournal.Lock();return Task.CompletedTask;},"SYNC_BUSY");
+    var record=qaJournal.Begin(new JObject{["rows"]=new JArray(),["sourceHash"]=QaUpdateJournal.SharedHash(source)});
+    Check(!qaJournal.CanContinue(record),"PREPARED without a saved byte hash must not resume");
+    File.AppendAllText(source," native CAD saved");record["afterHash"]=QaUpdateJournal.SharedHash(source);record["phase"]="CAD_SAVED";qaJournal.Save(record);
+    Check(qaJournal.CanContinue(record),"Saved byte-identical source cannot resume");qaJournal.Complete(record);Check(qaJournal.Read()==null,"Completed journal was not cleared");
+    var partial=qaJournal.Begin(new JObject{["rows"]=new JArray()});partial["phase"]="CATALOG_PUBLISHED";partial["afterHash"]=QaUpdateJournal.SharedHash(source);qaJournal.Save(partial);
+    File.AppendAllText(source," later CAD edit");Check(!qaJournal.CanContinue(partial),"Changed source was accepted as old saved plan");
+    await Reject(()=>{qaJournal.Complete(partial);return Task.CompletedTask;},"SOURCE_CHANGED");
+    string currentHash=QaUpdateJournal.SharedHash(source);string archive=qaJournal.AbandonKeepingCad(JObject.FromObject(sync.State()));
+    Check(qaJournal.Read()==null&&File.Exists(Path.Combine(archive,"pending-original.json")),"Cancellation lost original journal");
+    Check(QaUpdateJournal.SharedHash(source)==currentHash&&QaUpdateJournal.SharedHash(Path.Combine(archive,"preserved-current.dwg"))==currentHash,"Cancellation overwrote current CAD");
+    Check(Json.FileHash(Path.Combine(root,"Catalog","sync","state.json"))==journalStateHash,"Cancellation changed published state");
+    var invalid=new JObject{["sourceId"]="ISO_QUANGANH",["backupRelative"]="../../foreign/before.dwg"};
+    await Reject(()=>{qaJournal.Folder(invalid);return Task.CompletedTask;},"QA_JOURNAL");
+}
+File.WriteAllBytes(source,sourceBeforeJournal);
+Console.WriteLine("PASS: durable saved-byte recovery, stale source refusal, publication checkpoint, preserved CAD/catalog, journal archive, path guard and update lock");
 Console.WriteLine("PASS: live CAD projection, legacy usage review, missing sample/definition, new resource, explicit saved publication guard, stale geometry rejection, active add-in dependency guard");
 Console.WriteLine("PASS: five kinds, source paths, stable codes, hierarchical groups, metadata review and conflict guards; selected CAD publication without source overwrite; native rename; stale scan rejection; explicit QA authority");
 // Remove only this test's uniquely owned sandbox.

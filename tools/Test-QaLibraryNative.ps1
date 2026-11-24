@@ -3,10 +3,17 @@ $ErrorActionPreference='Stop'
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if(-not $Stage){$Stage=[IO.File]::ReadAllText((Join-Path $repo '.tools/qa-library-stage.txt')).Trim()}
 $physicalStage=[IO.Path]::GetFullPath($Stage)
+if(-not $LibraryPackage){$LibraryPackage=Join-Path $physicalStage 'package'}
+$physicalStage=Join-Path $repo ('.tools/test-runs/qa-native-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+[Guid]::NewGuid().ToString('N').Substring(0,6))
+New-Item -ItemType Directory -Path $physicalStage -Force|Out-Null
+@{component='Rainmaker.Library';sourceCommit=(& git -C $repo rev-parse HEAD);createdUtc=[DateTime]::UtcNow.ToString('o');purpose='QA native regression and mutation tests';package=$LibraryPackage}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $physicalStage 'test-run.json') -Encoding UTF8
+[IO.File]::WriteAllText((Join-Path $repo '.tools/qa-native-run.txt'),$physicalStage)
+$env:QALIB_TEST_PARENT=Join-Path $repo '.tools/test-runs'
 $fixtureOutput=& (Join-Path $repo '.tools/dotnet/dotnet.exe') (Join-Path $repo 'tests/QaLibrary.Tests/bin/Debug/net10.0-windows/QaLibrary.Tests.dll') --keep
 if($LASTEXITCODE -ne 0){throw 'Standalone business fixture failed'}
 $env:QALIB_STANDALONE_FIXTURE=($fixtureOutput|Where-Object{$_ -like 'FIXTURE=*'}).Substring(8)
 if(-not $env:QALIB_STANDALONE_FIXTURE){throw 'Missing standalone fixture'}
+[IO.File]::WriteAllText((Join-Path $physicalStage 'business-fixture.txt'),$env:QALIB_STANDALONE_FIXTURE)
 $env:DOTNET_CLI_HOME=Join-Path $repo '.tools/dotnet-home';$env:NUGET_PACKAGES=Join-Path $repo '.tools/nuget/packages'
 & (Join-Path $repo '.tools/dotnet/dotnet.exe') build (Join-Path $repo 'tests/QaLibrary.NativeHarness') -c Release -m:1 -nr:false -v:q -o (Join-Path $physicalStage 'harness')
 if($LASTEXITCODE -ne 0){throw 'Native harness build failed'}
@@ -29,12 +36,14 @@ if(-not $LibraryPackage){$LibraryPackage=Join-Path $Stage 'package'}
 Copy-Item -LiteralPath $LibraryPackage -Destination (Join-Path $test 'library') -Recurse
 @{ContentRoot=$test;DataRoot=(Join-Path $test 'data');HostExecutable=(Join-Path $Stage 'engine/Host/AICad.Host.exe')}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $test 'install.json') -Encoding UTF8
 [IO.File]::WriteAllText((Join-Path $test '.aicad-tools-test'),'Isolated QA 1.4 Manager integration test')
-Copy-Item -LiteralPath (Join-Path $repo 'content/launch/blank-mm.dwg') -Destination (Join-Path $test 'blank.dwg')
+$inputDrawing=Join-Path $test 'CAD/Originals/ISO_QuangAnh_ThuVien.dwg'
+New-Item -ItemType Directory -Path (Split-Path -Parent $inputDrawing) -Force|Out-Null
+Copy-Item -LiteralPath (Join-Path $repo 'content/launch/blank-mm.dwg') -Destination $inputDrawing
 $script=@('_NETLOAD',('"'+(Join-Path $autoCAD 'CAD.Bridge.AutoCAD.dll')+'"'),'_NETLOAD',('"'+(Join-Path $Stage 'harness/QaLibrary.NativeHarness.dll')+'"'),'QANATIVEVERIFY','_QUIT','_Y')-join "`r`n"
 [IO.File]::WriteAllText((Join-Path $test 'test.scr'),$script+"`r`n")
 $env:AICAD_TOOL_TEST_ROOT=$test
 $console=Join-Path $env:ProgramFiles 'Autodesk/AutoCAD 2021/accoreconsole.exe'
-& $console /i (Join-Path $test 'blank.dwg') /s (Join-Path $test 'test.scr') /isolate QaLibrary140 (Join-Path $test 'profile') *> (Join-Path $test 'core.log')
+& $console /i $inputDrawing /s (Join-Path $test 'test.scr') /isolate QaLibrary140 (Join-Path $test 'profile') *> (Join-Path $test 'core.log')
 $result=Join-Path $test 'ribbon-manager-results.json'
 if(-not(Test-Path -LiteralPath $result)){Get-Content -LiteralPath (Join-Path $test 'core.log') -Tail 30;throw 'Native test did not produce results'}
 Get-Content -LiteralPath $result -Raw

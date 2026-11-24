@@ -30,6 +30,7 @@ internal sealed partial class QaBrowserWindow
             button.Tag=command;layoutActions.Children.Add(button);layoutButtons.Add(button);
         }
         layoutActions.Children.Add(Button("Làm mới bố trí",()=>{RefreshCadContext();return Task.CompletedTask;}));
+        layoutActions.Children.Add(Button("Vị trí sử dụng / hướng dẫn CAD",ShowCadUsage));
         LayoutSection=new Expander{Header="Bố trí trên CAD",IsExpanded=false,Margin=new Thickness(0,0,0,8),Content=new ScrollViewer{Content=content,MaxHeight=180,VerticalScrollBarVisibility=ScrollBarVisibility.Auto}};
         LayoutSection.Expanded+=(_,_)=>RefreshCadContext();
         return LayoutSection;
@@ -40,6 +41,7 @@ internal sealed partial class QaBrowserWindow
 
     internal void RefreshCadContext()
     {
+        foreach(var button in layoutActions.Children.OfType<Button>().Where(b=>b.Tag as string=="hatch-merge"))button.Visibility=kind=="hatches"?Visibility.Visible:Visibility.Collapsed;
         foreach(var button in layoutButtons)button.IsEnabled=false;
         layoutStatus.Text=LibraryFrames.KindName(kind)+" · "+SelectionCaption;
         if(!persistUi)return;
@@ -78,7 +80,7 @@ internal sealed partial class QaBrowserWindow
         QaBlockInsert.Pending=null;
         if(lifetime.IsCancellationRequested)return;
         Show();Activate();
-        if(!cadMessageReceived)status.Text="Đã kết thúc thao tác CAD. Lưu Ctrl+S; dùng Lưu danh mục vào kho để đưa thay đổi vào kho.";
+        if(!cadMessageReceived)status.Text="Đã kết thúc thao tác CAD. Lưu Ctrl+S; dùng Quét thay đổi / đối chiếu để tiếp nhận vào kho.";
         if(kind!=Commands.Kind){kind=Commands.Kind;group="*";await Run(Load);}
         try
         {

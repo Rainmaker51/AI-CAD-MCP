@@ -247,13 +247,13 @@ public partial class LibraryRepository
         template.Layers.RemoveAll(l => removed.Any(i => i.Kind == "layers" && RemovedName(i, l.Name)));
     }
 
-    protected void DemandRemoval(List<LibrarySyncItem> removed, List<LibrarySyncItem> remaining)
+    protected void DemandRemoval(List<LibrarySyncItem> removed, List<LibrarySyncItem> remaining,HashSet<string>? remapped=null)
     {
         string settingsRoot=Path.Combine(Warehouse,"Catalog","addin-settings");
         if(Directory.Exists(settingsRoot))
         {
             var tools=new CadToolCatalog(config.ContentRoot).Read().Items.Where(t=>t.Enabled&&!t.DeletedUtc.HasValue).ToDictionary(t=>t.Id);
-            var identities=new HashSet<string>(removed.Select(i=>i.Id),StringComparer.OrdinalIgnoreCase);
+            var identities=new HashSet<string>(removed.Where(i=>remapped==null||!remapped.Contains(i.Id)).Select(i=>i.Id),StringComparer.OrdinalIgnoreCase);
             foreach(string file in Directory.GetFiles(settingsRoot,"*.json"))
             {
                 string toolId=Path.GetFileNameWithoutExtension(file);if(!tools.TryGetValue(toolId,out var tool))continue;

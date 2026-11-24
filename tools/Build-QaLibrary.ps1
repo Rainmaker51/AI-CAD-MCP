@@ -1,4 +1,4 @@
-param([string]$Stage='')
+param([string]$Stage='',[switch]$SkipEngine)
 $ErrorActionPreference='Stop'
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 Set-Location $repo
@@ -17,8 +17,10 @@ $dotnet=Join-Path $repo '.tools/dotnet/dotnet.exe'
 if($LASTEXITCODE -ne 0){throw 'QA build failed'}
 $package=Join-Path $Stage 'package';New-Item -ItemType Directory -Path $package -Force|Out-Null
 foreach($name in @('Rainmaker.Library.dll','Rainmaker.Library.pdb','Rainmaker.Library.Core.dll','Rainmaker.Library.Core.pdb','CAD.LibraryScanner.dll','CAD.LibraryScanner.pdb','Newtonsoft.Json.dll')){Copy-Item -LiteralPath (Join-Path $Stage ('publish/'+$name)) -Destination $package -Force}
+if(-not $SkipEngine){
 & $dotnet publish src/Desktop.Host -c Release --no-restore -m:1 -nr:false -o (Join-Path $Stage 'engine/Host') -v:q
 if($LASTEXITCODE -ne 0){throw 'Background engine build failed'}
 & $dotnet publish src/CAD.LibraryScanner -c Release --no-restore -m:1 -nr:false -o (Join-Path $Stage 'engine/Host/LibraryScanner') -v:q
 if($LASTEXITCODE -ne 0){throw 'Scanner build failed'}
+}
 Write-Output ('Stage: '+$Stage)

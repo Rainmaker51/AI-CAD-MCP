@@ -13,7 +13,7 @@ using JsonUtil = AICad.Contracts.Json;
 [assembly: CommandClass(typeof(AICad.LibraryScanner.LibrarySyncNative))]
 namespace AICad.LibraryScanner;
 
-public sealed class LibrarySyncNative
+public sealed partial class LibrarySyncNative
 {
     public sealed class LayoutReport
     {
@@ -117,6 +117,7 @@ public sealed class LibrarySyncNative
         var item = Metadata(obj, tx, ResourceKey) ?? hints.FirstOrDefault(i=>i.Kind==kind&&i.Handle!=""&&i.Handle.Equals(obj.Handle.ToString(),StringComparison.OrdinalIgnoreCase))?.Copy() ?? hints.FirstOrDefault(i => i.Kind == kind &&
             (kind == "hatches" ? i.Handle == obj.Handle.ToString() || HatchMatch(i.Values, values) : string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase)))?.Copy()
             ?? new LibrarySyncItem { Id = JsonUtil.Hash(new[] { kind, name }).Substring(0, 32), Kind = kind };
+        var alias=item.Values["qaDisplayName"]?.DeepClone();if(alias!=null)values["qaDisplayName"]=alias;
         item.Kind = kind; item.Name = name; item.Handle = obj.Handle.ToString(); item.Values = values;
         if (item.OriginalName == "") item.OriginalName = name;
         return item;
@@ -126,7 +127,7 @@ public sealed class LibrarySyncNative
         rgb = e.Color.ColorMethod == ColorMethod.ByColor ? (int?)(e.Color.Red << 16 | e.Color.Green << 8 | e.Color.Blue) : null });
 
     static bool HatchMatch(JObject a, JObject b) => new[] { "pattern", "type", "layer" }.All(k => string.Equals(a.Value<string>(k), b.Value<string>(k), StringComparison.OrdinalIgnoreCase)) &&
-        new[] { "scale", "angle", "color", "spacing" }.All(k => a[k] != null && b[k] != null && Math.Abs(a.Value<double>(k)-b.Value<double>(k)) < 1e-7) && a.Value<bool>("doublePattern") == b.Value<bool>("doublePattern");
+        new[] { "scale", "angle", "color", "spacing" }.All(k => a[k] != null && b[k] != null && Math.Abs(a.Value<double>(k)-b.Value<double>(k)) < 1e-7) && a.Value<int?>("rgb")==b.Value<int?>("rgb") && a.Value<bool>("doublePattern") == b.Value<bool>("doublePattern");
     public static JObject HatchValues(Hatch h)
     {
         var values=JObject.FromObject(new{pattern=h.PatternName,type=h.PatternType.ToString(),scale=h.PatternScale,angle=h.PatternAngle,layer=h.Layer,spacing=h.PatternSpace,doublePattern=h.PatternDouble});values.Merge(ColorValues(h));return values;
@@ -212,7 +213,7 @@ public sealed class LibrarySyncNative
                 var known = hints.FirstOrDefault(i => i.Kind == "hatches" && (i.Handle == h.Handle.ToString() || HatchMatch(i.Values, values)));
                 if (metadata == null && known == null && !hatchKeys.Add(key)) continue;
                 hatchKeys.Add(key);
-                var item = Item(h, tx, "hatches", known?.Name ?? h.PatternName + " · " + h.PatternScale + " · " + Math.Round(h.PatternAngle * 180 / Math.PI, 2) + "°", values, hints);
+                var item = Item(h, tx, "hatches", metadata?.Name ?? known?.Name ?? h.PatternName + " · " + h.PatternScale + " · " + Math.Round(h.PatternAngle * 180 / Math.PI, 2) + "°", values, hints);
                 if (metadata == null && known == null) item.Id = key.Substring(0, 32);
                 if (result.All(i => i.Id != item.Id)) result.Add(item);
             }
@@ -363,6 +364,9 @@ public sealed class LibrarySyncNative
     {
         var old = existing.SingleOrDefault(i => i.Id == item.Id);
         var v = item.Values;
+        if(old!=null&&!string.Equals(old.Name,item.Name,StringComparison.Ordinal)&&
+            (string.IsNullOrWhiteSpace(v.Value<string>("qaDisplayName"))||v.Value<string>("qaDisplayName")==old.Name))
+            v["qaDisplayName"]=item.Name;
         DBObject obj;
         if (item.Kind == "layers")
         {
@@ -440,7 +444,7 @@ public sealed class LibrarySyncNative
         Write(db, tx, item, existing);
         // Only a genuinely new resource gets a new presentation sample. Editing a
         // surviving definition must never restore an insertion erased by the user.
-        if(existing.Any(i=>i.Id==item.Id))return;
+        if(existing.Any(i=>i.Id==item.Id)){RefreshResourcePresentation(db,tx,item);return;}
         var created=Read(db,tx,hints.Concat(new[]{item}).ToList()).Single(i=>i.Id==item.Id);
         var resource=Resolve(db,tx,created);
         Entity sample=resource switch{

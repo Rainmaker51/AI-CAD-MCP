@@ -45,6 +45,10 @@ public sealed partial class NativeTests
             VerifyLiveAndInsertion(root);
             VerifyHatchView(root);
             VerifyStandalone(root);
+            VerifyLayerRename(root);
+            VerifyCadFirst(root);
+            VerifyMutations(root);
+            VerifyCadPublication(root);
             using var db=new Database(true,true){Insunits=UnitsValue.Millimeters};HostApplicationServices.WorkingDatabase=db;
             using(var tx=db.TransactionManager.StartTransaction())
             {

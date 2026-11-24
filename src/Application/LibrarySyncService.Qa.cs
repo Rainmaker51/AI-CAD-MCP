@@ -11,6 +11,55 @@ namespace AICad.Application;
 
 public partial class LibraryRepository
 {
+    public object ValidateQaView(JObject request)
+    {
+        using var lease=Lease();Recover();
+        if(request.Value<string>("appHash")!=AppHash())throw new CadException("RESOURCE_CHANGED","Danh mục hoặc thông tin quản lý đã thay đổi. Quét và xem lại trước khi áp dụng.");
+        return new{status="READY"};
+    }
+    public object CheckQaMetadata(JObject request)
+    {
+        using var lease=Lease();Recover();var state=ReadState();
+        if(request.Value<int?>("catalogRevision") is int expected&&expected!=state.Revision)throw new CadException("RESOURCE_CHANGED","Danh mục đã thay đổi trước khi sửa hồ sơ.");
+        foreach(var p in (request["metadata"] as JArray??new()).OfType<JObject>())
+        {
+            var label=Catalog.Label(p.Value<string>("kind")!,p.Value<string>("metadataId")!);
+            bool applied=label.Name==p.Value<string>("name")&&label.Purpose==p.Value<string>("purpose")&&label.Notes==p.Value<string>("notes")&&label.GroupId==p.Value<string>("groupId")&&label.Reviewed==p.Value<bool>("reviewed");
+            if(label.Revision!=p.Value<int>("revision")&&!applied)throw new CadException("RESOURCE_CHANGED","Hồ sơ đã được phiên khác sửa; giữ giao dịch để đối chiếu, không ghi đè.");
+        }
+        return new{status="READY"};
+    }
+    public object CheckQaRemoval(JObject request)
+    {
+        using var lease=Lease();Recover();var state=ReadState();
+        if(request.Value<int?>("revision")!=state.Revision)throw new CadException("RESOURCE_CHANGED","Kho đã thay đổi. Làm mới trước khi xóa/gộp.");
+        var ids=new HashSet<string>((request["ids"] as JArray??new()).Values<string>()!);
+        var removed=state.Items.Where(i=>ids.Contains(i.Id)).ToList();
+        string target=request.Value<string>("target")??"";
+        if(target!=""&&!state.Items.Any(i=>i.Id==target&&i.Kind=="hatches")||target!=""&&removed.Any(i=>i.Kind!="hatches"||i.Id==target))throw new CadException("INVALID_TARGET","Hatch đích không hợp lệ.");
+        DemandRemoval(removed,state.Items.Where(i=>!ids.Contains(i.Id)).ToList(),target==""?null:ids);
+        return new{status="READY",revision=state.Revision};
+    }
+    public object RemapQaConsumers(JObject request)
+    {
+        using var lease=Lease();Recover();var state=ReadState();string target=request.Value<string>("target")??"";
+        if(!state.Items.Any(i=>i.Id==target&&i.Kind=="hatches"))throw new CadException("INVALID_TARGET","Hatch đích không còn trong kho.");
+        var ids=new HashSet<string>((request["ids"] as JArray??new()).Values<string>()!);
+        if(state.Items.Any(i=>ids.Contains(i.Id)&&i.Kind!="hatches")||ids.Contains(target))throw new CadException("INVALID_TARGET","Chỉ chuyển tham chiếu của hatch nguồn sang hatch đích.");
+        string operation=Json.Id(request.Value<string>("operation")??""),backup=Path.Combine(Warehouse,"Versions","qa-mutations",operation,"consumers",Json.Name(target));
+        string plan=Path.Combine(backup,"remap-plan.json");var mapping=new JObject{["target"]=target,["ids"]=JArray.FromObject(ids.OrderBy(i=>i))};
+        if(File.Exists(plan)){if(Json.Hash(Json.Read<JObject>(File.ReadAllText(plan)))!=Json.Hash(mapping))throw new CadException("RESOURCE_CHANGED","Kế hoạch chuyển tham chiếu đã thay đổi.");}
+        else{if(ids.Any(id=>!state.Items.Any(i=>i.Id==id&&i.Kind=="hatches")))throw new CadException("INVALID_TARGET","Hatch nguồn không còn trong kho.");Directory.CreateDirectory(backup);Json.Atomic(plan,mapping);}
+        string root=Path.Combine(Warehouse,"Catalog","addin-settings");int count=0;
+        if(Directory.Exists(root))foreach(string file in Directory.GetFiles(root,"*.json"))
+        {
+            var settings=Json.Read<JObject>(File.ReadAllText(file));var values=settings.Descendants().OfType<JValue>().Where(v=>v.Type==JTokenType.String&&ids.Contains(v.Value<string>()!)).ToList();if(values.Count==0)continue;
+            Directory.CreateDirectory(backup);string copy=Path.Combine(backup,Path.GetFileName(file));if(!File.Exists(copy))File.Copy(file,copy);
+            else if(Json.Hash(Json.Read<JObject>(File.ReadAllText(copy)))!=Json.Hash(settings))throw new CadException("RESOURCE_CHANGED","Cấu hình add-in đã đổi sau lúc chuyển tham chiếu: "+Path.GetFileName(file));
+            foreach(var value in values)value.Value=target;Json.Atomic(file,settings);count++;
+        }
+        return new{status="REMAPPED",count};
+    }
     public object UpdateQaLabel(JObject request,string kind,string metadataId,string resourceId)
     {
         using var lease=Lease();Recover();var state=ReadState();
@@ -72,7 +121,7 @@ public partial class LibraryRepository
                     item.OriginalName = change.App.OriginalName == "" ? change.App.Name : change.App.OriginalName;
                     if (!change.CadGroupChanged) item.Group = change.App.Group;
                     // Notes edited in QA's management profile are not stale CAD annotations.
-                    item.Purpose = change.App.Purpose; item.Notes = change.App.Notes;
+                    if(request.Value<bool?>("mirrorMetadata")!=true){item.Purpose = change.App.Purpose; item.Notes = change.App.Notes;}
                 }
                 item.Draft = false; desired.RemoveAll(i => i.Id == item.Id); desired.Add(item); accepted.Add(item.Id);
             }
