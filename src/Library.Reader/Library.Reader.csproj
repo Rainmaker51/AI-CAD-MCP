@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>netstandard2.0</TargetFramework><AssemblyName>Rainmaker.Library.Reader</AssemblyName><Version>1.0.1</Version><AssemblyVersion>1.0.0.0</AssemblyVersion><FileVersion>1.0.1.0</FileVersion></PropertyGroup>
+  <ItemGroup><PackageReference Include="Newtonsoft.Json" Version="13.0.3" /></ItemGroup>
+</Project>

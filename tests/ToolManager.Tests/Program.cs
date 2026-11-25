@@ -8,7 +8,10 @@ void Reject(Action work,string code){try{work();}catch(CadException e)when(e.Cod
 string root=Path.Combine(Path.GetTempPath(),"aicad-tools-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
 var catalog=new CadToolCatalog(root);string input=Path.Combine(root,"source");Directory.CreateDirectory(input);string source=Path.Combine(input,"sample.dll");
 File.WriteAllText(source,"first package");
+string sharedReader=Path.Combine(input,"Rainmaker.Library.Reader.dll");File.WriteAllText(sharedReader,"Manager-owned dependency");
+Reject(()=>catalog.Import(sharedReader,0),"TOOL_RESERVED");
 var item=catalog.Import(source,0);Check(item.Kind=="dotnet");Check(!Path.IsPathRooted(item.RelativePath));Check(catalog.Demand(item).StartsWith(catalog.Root));
+Check(!File.Exists(Path.Combine(Path.GetDirectoryName(catalog.Demand(item))!,"Rainmaker.Library.Reader.dll")));
 Reject(()=>catalog.Import(Path.Combine(input,"legacy.lsp"),1),"TOOL_TYPE");
 catalog.Update(item.Id,1,"Hello",".NET / Chung","Mục đích",true,item.Commands);Reject(()=>catalog.Update(item.Id,1,"Stale","","",true,item.Commands),"STALE_EDIT");
 File.WriteAllText(source,"updated package");var updated=catalog.Import(source,2,item.Id);Check(updated.Id==item.Id&&updated.Group==".NET / Chung"&&updated.Notes=="Mục đích"&&updated.FileHash!=item.FileHash);Check(!File.Exists(catalog.PathFor(item)));Check(Directory.GetFiles(Path.Combine(catalog.Root,"dotnet","_Development"),"sample.dll",SearchOption.AllDirectories).Any(p=>File.ReadAllText(p)=="first package"));

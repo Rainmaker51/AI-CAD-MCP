@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -37,7 +37,11 @@ public sealed partial class NativeTests
             using(var locked=doc.LockDocument())
             {
                 using(var tx=doc.Database.TransactionManager.StartTransaction())
-                {var table=(LayerTable)tx.GetObject(doc.Database.LayerTableId,OpenMode.ForWrite);var layer=new LayerTableRecord{Name="CAD_PUBLISH_END_TO_END",LineWeight=LineWeight.LineWeight035};table.Add(layer);tx.AddNewlyCreatedDBObject(layer,true);tx.Commit();}
+                {var table=(LayerTable)tx.GetObject(doc.Database.LayerTableId,OpenMode.ForWrite);var layer=new LayerTableRecord{Name="CAD_PUBLISH_END_TO_END",LineWeight=LineWeight.LineWeight035};table.Add(layer);tx.AddNewlyCreatedDBObject(layer,true);
+                    var frameItem=LibrarySyncNative.ReadDrawing(doc.Database,tx).Single(i=>i.Name==layer.Name);
+                    var bt=(BlockTable)tx.GetObject(doc.Database.BlockTableId,OpenMode.ForRead);var model=(BlockTableRecord)tx.GetObject(bt[BlockTableRecord.ModelSpace],OpenMode.ForWrite);
+                    var sample=new Line(Autodesk.AutoCAD.Geometry.Point3d.Origin,new Autodesk.AutoCAD.Geometry.Point3d(5000,0,0)){LayerId=layer.ObjectId};model.AppendEntity(sample);tx.AddNewlyCreatedDBObject(sample,true);
+                    LibrarySyncNative.AssignGroup(doc.Database,tx,frameItem,"CAD / Native",sample);LibraryFrames.AddCell(doc.Database,tx,frameItem,sample);LibraryFrames.Build(doc.Database,tx,new(){frameItem});LibraryFrames.Separate(doc.Database,tx,new(){frameItem});tx.Commit();}
                 doc.Database.SaveAs(source,true,DwgVersion.Current,doc.Database.SecurityParameters);
             }
             window.PublicationProgress("FIXTURE_SOURCE_SAVED");
@@ -62,6 +66,25 @@ public sealed partial class NativeTests
                 ((Task)typeof(QaBrowserWindow).GetMethod("FinishCadPlan",flags)!.Invoke(window,new object[]{record})!).GetAwaiter().GetResult();
             }
             Check(new QaUpdateJournal(config).Read()==null,"Idempotent completion did not clear journal");
+            typeof(QaBrowserWindow).GetField("kind",flags)!.SetValue(window,"layers");
+            ((Task)typeof(QaBrowserWindow).GetMethod("RefreshLive",flags)!.Invoke(window,null)!).GetAwaiter().GetResult();
+            string groupId=Guid.NewGuid().ToString("N");
+            void SyncGroup(JObject request)=>((Task)typeof(QaBrowserWindow).GetMethod("SyncGroup",flags)!.Invoke(window,new object[]{request})!).GetAwaiter().GetResult();
+            SyncGroup(new JObject{["id"]=groupId,["action"]="create",["name"]="Window group",["parentId"]=""});
+            var layerGroups=client.Call("api/qa-library/layers",null,CancellationToken.None).GetAwaiter().GetResult()["groups"]!.ToObject<System.Collections.Generic.List<LibraryGroup>>()!;
+            string originalGroup=layerGroups.Single(g=>QaBrowserWindow.TreePath(layerGroups,g.Id)=="CAD / Native").Id;
+            using(var locked=doc.LockDocument())
+            {using(var tx=doc.Database.TransactionManager.StartTransaction()){var frame=LibraryFrames.Model(doc.Database,tx).OfType<BlockReference>().Single(b=>LibraryFrames.Info(b,tx)?.CatalogGroupId==originalGroup);frame.UpgradeOpen();frame.Erase();tx.Commit();}doc.Database.SaveAs(source,true,DwgVersion.Current,doc.Database.SecurityParameters);}
+            ((Task)typeof(QaBrowserWindow).GetMethod("RefreshLive",flags)!.Invoke(window,null)!).GetAwaiter().GetResult();
+            SyncGroup(new JObject{["id"]=originalGroup,["action"]="remove",["targetId"]=groupId,["childMode"]="lift"});
+            var grouped=client.Call("api/qa-library/layers",null,CancellationToken.None).GetAwaiter().GetResult();
+            Check(!grouped["groups"]!.Any(g=>g.Value<string>("Id")==originalGroup)&&grouped["items"]!.OfType<JObject>().Single(r=>r.Value<string>("id")==item.Id)["management"]!.Value<string>("GroupId")==groupId,"Actual window group operation left removed group or stale metadata");
+            Check(new QaUpdateJournal(config).Read()==null,"Group operation left a pending journal");
+            var completedGroup=Directory.GetFiles(Path.Combine(root,"Versions","qa-mutations"),"result.json",SearchOption.AllDirectories).Select(f=>JObject.Parse(File.ReadAllText(f))).Single(j=>j["groupAction"]?["request"]?.Value<string>("id")==originalGroup);
+            completedGroup["phase"]="CAD_SAVED";JsonUtil.Atomic(new QaUpdateJournal(config).PendingPath,completedGroup);
+            ((Task)typeof(QaBrowserWindow).GetMethod("CompletePendingSync",flags)!.Invoke(window,null)!).GetAwaiter().GetResult();
+            Check(new QaUpdateJournal(config).Read()==null,"Saved group retry failed while source drawing remained open");
+            JsonUtil.Atomic(Path.Combine(evidence,"group-publication.json"),new{passed=true,actualWindowGroup=true,emptyGroupFrame=true,deletedCadFrameReconciled=true,metadataAndCadTogether=true,journalCompleted=true,retryWithOpenDrawing=true});
             QaCadSnapshot.Discard(config,saved);
             JsonUtil.Atomic(Path.Combine(evidence,"cad-publication.json"),new{passed=true,actualWindowPlan=true,nativeLayerPreserved=true,selectedOnly=true,presentationCreated=true,savedSource=true,completionReplay=true,deferredPreserved=true});
         }

@@ -11,6 +11,25 @@ namespace AICad.Application;
 
 public partial class LibraryRepository
 {
+    public object ApplyQaGroupTree(JObject plan)
+    {
+        using var lease=Lease();Recover();
+        string kind=plan.Value<string>("kind")??"";if(!LibrarySyncRules.Kinds.Contains(kind))throw new CadException("LIBRARY_KIND",kind);
+        var before=plan["beforeGroups"]!.ToObject<List<LibraryGroup>>()!;var after=plan["afterGroups"]!.ToObject<List<LibraryGroup>>()!;
+        string Digest(List<LibraryGroup> groups)=>Json.Hash(groups.OrderBy(g=>g.Id).Select(g=>new{g.Id,g.Name,g.ParentId}));
+        foreach(var g in after){Json.Id(g.Id);if(string.IsNullOrWhiteSpace(g.Name)||g.Name.Contains('/')||g.Name.Length>120||g.Name.Any(char.IsControl))throw new CadException("INVALID_NAME","Tên nhóm không hợp lệ.");var seen=new HashSet<string>{g.Id};string parent=g.ParentId;while(parent!=""){if(!seen.Add(parent)||seen.Count>16)throw new CadException("INVALID_GROUP_TREE","Nhóm bị lặp hoặc quá sâu.");parent=after.SingleOrDefault(n=>n.Id==parent)?.ParentId??throw new CadException("GROUP_NOT_FOUND",parent);}}
+        if(after.Select(g=>g.Id).Distinct().Count()!=after.Count||after.GroupBy(g=>g.ParentId+"|"+g.Name,StringComparer.OrdinalIgnoreCase).Any(g=>g.Count()>1))throw new CadException("GROUP_EXISTS","Trùng ID hoặc tên nhóm cùng cấp.");
+        return Catalog.Edit(()=>
+        {
+            var current=Catalog.Groups(kind);if(Digest(current)!=Digest(before)&&Digest(current)!=Digest(after))throw new CadException("RESOURCE_CHANGED","Cây nhóm đã thay đổi. Đọc lại trước khi cập nhật.");
+            var labels=(plan["labelGroups"] as JArray??new()).OfType<JObject>().ToList();
+            foreach(var row in labels){var label=Catalog.Label(kind,row.Value<string>("metadataId")!);string target=row.Value<string>("groupId")!;if(target!=""&&!after.Any(g=>g.Id==target))throw new CadException("GROUP_NOT_FOUND",target);if(label.GroupId!=target&&(label.GroupId!=row.Value<string>("beforeGroupId")||label.Revision!=row.Value<int>("revision")))throw new CadException("RESOURCE_CHANGED","Nhóm của hồ sơ đã đổi ở phiên khác.");}
+            if(plan.Value<bool?>("checkOnly")==true)return new{status="READY"};
+            string root=Path.Combine(Warehouse,"Catalog","management");Json.Atomic(Path.Combine(root,kind+"-groups.json"),after);
+            foreach(var row in labels){string id=Json.Name(row.Value<string>("metadataId")!);var label=Catalog.Label(kind,id);if(label.GroupId==row.Value<string>("groupId"))continue;label.GroupId=row.Value<string>("groupId")!;label.Revision++;Json.Atomic(Path.Combine(root,kind,id+".json"),label);}
+            return new{status="APPLIED"};
+        });
+    }
     public object ValidateQaView(JObject request)
     {
         using var lease=Lease();Recover();
@@ -100,12 +119,18 @@ public partial class LibraryRepository
             var native = review["native"]!.ToObject<List<LibrarySyncItem>>()!;
             var changes = LibrarySyncRules.Compare(state, native);
             var choices = request["choices"]?.ToObject<Dictionary<string, string>>() ?? new();
-            if (choices.Count == 0 || choices.Keys.Any(id => changes.All(d => d.Id != id)) || choices.Values.Any(v => v != "cad" && v != "remove"))
+            if (choices.Count == 0 || choices.Keys.Any(id => changes.All(d => d.Id != id)) || choices.Values.Any(v => v != "cad" && v != "remove" && v!="exclude"))
                 throw new CadException("QA_CHOICE", "Chọn các mục lấy từ CAD hoặc các mục đã mất trong CAD để loại khỏi danh mục.");
             var desired = state.Items.Select(i => i.Copy()).ToList();
             var accepted = new HashSet<string>(); var removed = new List<LibrarySyncItem>();
             foreach (var change in changes.Where(d => choices.ContainsKey(d.Id)))
             {
+                if(choices[change.Id]=="exclude")
+                {
+                    if(change.App?.Kind!="hatches"||change.Cad?.Kind!="hatches"||review["presence"]?[change.Id]?.Value<bool?>("inScope")!=false)throw new CadException("QA_EXCLUDE","Chỉ loại hồ sơ hatch đã có trong kho và đang ngoài khung quét.");
+                    removed.Add(change.App.Copy());desired.RemoveAll(i=>i.Id==change.Id);continue;
+                }
+                if(review["presence"]?[change.Id]?.Value<bool?>("inScope")==false)throw new CadException("LIBRARY_OUT_OF_SCOPE","Đưa mẫu vào đúng khung trước khi xuất hoặc xóa hồ sơ.");
                 if (choices[change.Id] == "remove")
                 {
                     bool absentSample=change.App?.Kind=="blocks"&&review["presence"]?[change.Id]?.Value<bool?>("samplePresent")==false;

@@ -8,7 +8,7 @@ using JsonUtil=AICad.Contracts.Json;
 namespace AICad.Bridge;
 internal static class NativeLibraryAssets {
  internal static string ContentRoot="";
- internal static string PathFor(NativeBlockSource source){if(ContentRoot==""||!System.Text.RegularExpressions.Regex.IsMatch(source.FileHash,"^[a-f0-9]{64}$"))throw new CadException("MISSING_ASSET","Native library source is not configured.");return Path.Combine(WarehousePaths.Folder(ContentRoot,"content-assets"),source.FileHash+".dwg");}
+ internal static string PathFor(NativeBlockSource source){if(ContentRoot=="")throw new CadException("MISSING_ASSET","Native library source is not configured.");return CadReaderDependency.ResolveAsset(ContentRoot,source.FileHash); }
  internal static void Demand(DrawingPlan p){foreach(var source in p.Template.Blocks.Where(b=>b.NativeSource!=null).Select(b=>b.NativeSource!).Concat(p.Template.Layers.Where(l=>l.Appearance?.SourceHash!=""&&l.Appearance?.SourceHash!=null).Select(l=>new NativeBlockSource{FileHash=l.Appearance!.SourceHash})).GroupBy(s=>s.FileHash).Select(g=>g.First())){string path=PathFor(source);if(!File.Exists(path)||JsonUtil.FileHash(path)!=source.FileHash)throw new CadException("RESOURCE_CHANGED","DWG library source changed.");}}
  internal static ObjectId Clone(BlockAsset asset,Database target,Transaction tx,string name){
   var source=asset.NativeSource!;string file=PathFor(source);

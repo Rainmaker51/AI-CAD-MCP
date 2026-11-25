@@ -1,7 +1,29 @@
-using AICad.Application;
+﻿using AICad.Application;
 using AICad.Contracts;
 using Newtonsoft.Json.Linq;
 using System.Reflection;
+
+if(args.Length==6&&args[0]=="--exclude-outside-hatches")
+{
+    var liveConfig=new InstallConfig{ContentRoot=Path.GetFullPath(args[1]),DataRoot=Path.GetFullPath(args[2])};
+    var repository=new LibraryRepository(liveConfig);var snapshot=repository.LiveCapture(args[3]);
+    if(snapshot.Value<string>("readMode")!="SAVED_FILE"||QaUpdateJournal.SharedHash(snapshot.Value<string>("source")!)!=snapshot.Value<string>("snapshotHash"))throw new Exception("Saved source no longer matches the inspected snapshot");
+    if(new QaUpdateJournal(liveConfig).Read()!=null)throw new Exception("Pending QA operation; finish it first");
+    var state=JObject.FromObject(repository.State());var active=state["items"]!.ToObject<List<LibrarySyncItem>>()!;
+    var targets=snapshot["items"]!.ToObject<List<LibrarySyncItem>>()!.Where(i=>i.Kind=="hatches"&&snapshot["presence"]?[i.Id]?.Value<bool?>("inScope")==false&&active.Any(a=>a.Id==i.Id)).ToList();
+    if(targets.Count!=10)throw new Exception("Expected the ten reviewed outside-frame hatches; found "+targets.Count);
+    repository.CheckQaRemoval(new JObject{["revision"]=state["revision"]!.DeepClone(),["ids"]=JArray.FromObject(targets.Select(i=>i.Id))});
+    var review=repository.RegisterLive(args[3]);
+    if(args[4]!="--apply"){Console.WriteLine(JArray.FromObject(targets.Select(i=>new{i.Id,i.Name})));return;}
+    var cliPrepared=JObject.FromObject(repository.PrepareLiveApproval(new JObject{["reviewId"]=args[3],["savedId"]=args[3]}));
+    var cliChoices=new JObject();foreach(var target in targets)cliChoices[target.Id]="exclude";
+    string before=QaUpdateJournal.SharedHash(snapshot.Value<string>("source")!);
+    var cliResult=JObject.FromObject(await repository.ApproveCad(new JObject{["id"]=cliPrepared["id"]!.DeepClone(),["choices"]=cliChoices},CancellationToken.None));
+    var remaining=JObject.FromObject(repository.State())["items"]!.ToObject<List<LibrarySyncItem>>()!;
+    if(targets.Any(t=>remaining.Any(i=>i.Id==t.Id))||QaUpdateJournal.SharedHash(snapshot.Value<string>("source")!)!=before)throw new Exception("Exclusion verification failed");
+    Json.Atomic(args[5],new{passed=true,removed=targets.Select(i=>new{i.Id,i.Name}),cliResult,sourceUnchanged=true,remainingHatches=remaining.Count(i=>i.Kind=="hatches")});
+    Console.WriteLine("EXCLUDED="+targets.Count+" REMAINING="+remaining.Count(i=>i.Kind=="hatches")+" DWG_UNCHANGED=true");return;
+}
 
 if(args.Length==5&&args[0]=="--audit-warehouse")
 {
@@ -144,6 +166,14 @@ var projectedLayer=qa.ReadLive("layers",live);Check(projectedLayer["items"]!.Sin
 var missing=qa.ReadLive("blocks",Capture(changed.Where(i=>i.Id!=block.Id).ToList(),new()));Check(missing["items"]!.Single().Value<string>("liveStatus")=="MISSING","Absent definition not distinguished");
 var fresh=new LibrarySyncItem{Id=Guid.NewGuid().ToString("N"),Kind="blocks",Name="NEW_BLOCK",Values=new()};
 var added=qa.ReadLive("blocks",Capture(changed.Append(fresh).ToList(),presence));Check(added["items"]!.Single(i=>i.Value<string>("id")==fresh.Id).Value<bool>("published")==false,"New CAD block falsely marked published");
+var outsidePresence=(JObject)presence.DeepClone();outsidePresence[block.Id]!["inScope"]=false;
+var outsideCapture=Capture(changed,outsidePresence,"SAVED_FILE");var outsideReview=sync.RegisterLive(outsideCapture.Value<string>("id")!);
+Check(outsideReview["differences"]!.Single(d=>d.Value<string>("Id")==block.Id).Value<string>("Status")=="CAD_OUT_OF_SCOPE","Outside scope became missing/removable");
+Check(qa.ReadLive("blocks",outsideCapture)["items"]!.Single().Value<string>("liveStatus")=="OUT_OF_SCOPE","Outside scope hidden from live status");
+var outsidePrepared=JObject.FromObject(sync.PrepareLiveApproval(new(){["reviewId"]=outsideCapture["id"]!.DeepClone(),["savedId"]=outsideCapture["id"]!.DeepClone()}));
+foreach(string choice in new[]{"cad","remove"})await Reject(()=>sync.Apply(new(){["id"]=outsidePrepared["id"]!.DeepClone(),["choices"]=new JObject{[block.Id]=choice}},CancellationToken.None),"LIBRARY_OUT_OF_SCOPE");
+Check(JObject.FromObject(sync.State())["items"]!.Any(i=>i.Value<string>("Id")==block.Id),"Outside resource removed from published state");
+Console.WriteLine("PASS: outside-frame projection, default retention and publication/removal guards");
 var savedLive=Capture(changed,presence,"SAVED_FILE");var prepared=JObject.FromObject(sync.PrepareLiveApproval(new(){["reviewId"]=live["id"]!.DeepClone(),["savedId"]=savedLive["id"]!.DeepClone()}));
 Check(prepared.Value<string>("id")==savedLive.Value<string>("id"),"Saved equivalent snapshot rejected");
 string? legacyFile=Environment.GetEnvironmentVariable("QA_LEGACY_CAPTURE");
@@ -216,5 +246,33 @@ File.WriteAllBytes(source,sourceBeforeJournal);
 Console.WriteLine("PASS: durable saved-byte recovery, stale source refusal, publication checkpoint, preserved CAD/catalog, journal archive, path guard and update lock");
 Console.WriteLine("PASS: live CAD projection, legacy usage review, missing sample/definition, new resource, explicit saved publication guard, stale geometry rejection, active add-in dependency guard");
 Console.WriteLine("PASS: five kinds, source paths, stable codes, hierarchical groups, metadata review and conflict guards; selected CAD publication without source overwrite; native rename; stale scan rejection; explicit QA authority");
+// Group-only commits preserve native resource content and resume after a partial tree write.
+foreach(string groupKind in LibrarySyncRules.Kinds)
+{
+    var view=JObject.FromObject(qa.Read(groupKind));var beforeTree=view["groups"]!.ToObject<List<LibraryGroup>>()!;
+    var row=(JObject)view["items"]![0]!;string metadataId=row.Value<string>("metadataId")!;var oldLabel=metadata.Label(groupKind,metadataId);
+    string destination=Guid.NewGuid().ToString("N"),childId=Guid.NewGuid().ToString("N");
+    var afterTree=beforeTree.Concat(new[]{new LibraryGroup{Id=destination,Name="Group test"},new LibraryGroup{Id=childId,Name="Child test",ParentId=destination}}).ToList();
+    var groupPlan=new JObject{["kind"]=groupKind,["beforeGroups"]=JArray.FromObject(beforeTree),["afterGroups"]=JArray.FromObject(afterTree),["labelGroups"]=new JArray(new JObject{["metadataId"]=metadataId,["beforeGroupId"]=oldLabel.GroupId,["groupId"]=destination,["revision"]=oldLabel.Revision})};
+    string dwgHash=Json.FileHash(source);var checkOnly=(JObject)groupPlan.DeepClone();checkOnly["checkOnly"]=true;sync.ApplyQaGroupTree(checkOnly);Check(!metadata.Groups(groupKind).Any(g=>g.Id==destination),"Preflight wrote group tree");
+    Json.Atomic(Path.Combine(root,"Catalog","management",groupKind+"-groups.json"),afterTree);
+    sync.ApplyQaGroupTree(groupPlan);int revision=metadata.Label(groupKind,metadataId).Revision;sync.ApplyQaGroupTree(groupPlan);var label=metadata.Label(groupKind,metadataId);
+    Check(label.GroupId==destination&&label.Revision==revision&&label.Name==oldLabel.Name&&label.Purpose==oldLabel.Purpose,"Group resume changed unrelated metadata or repeated revision");
+    var removedTree=afterTree.Where(g=>g.Id!=destination).Select(g=>new LibraryGroup{Id=g.Id,Name=g.Name,ParentId=g.ParentId==destination?"":g.ParentId}).ToList();
+    sync.ApplyQaGroupTree(new JObject{["kind"]=groupKind,["beforeGroups"]=JArray.FromObject(afterTree),["afterGroups"]=JArray.FromObject(removedTree),["labelGroups"]=new JArray(new JObject{["metadataId"]=metadataId,["beforeGroupId"]=destination,["groupId"]="",["revision"]=revision})});
+    Check(!metadata.Groups(groupKind).Any(g=>g.Id==destination)&&metadata.Groups(groupKind).Single(g=>g.Id==childId).ParentId==""&&metadata.Label(groupKind,metadataId).GroupId=="","Group deletion left dangling metadata or child");
+    Check(Json.FileHash(source)==dwgHash&&JObject.FromObject(qa.Read(groupKind))["items"]!.Count()==view["items"]!.Count(),"Group-only commit changed source or removed resources");
+}
+Console.WriteLine("PASS: five-kind group tree commits, metadata retention, partial-write recovery, idempotent retry and child reparenting");
+if(!args.Contains("--keep"))
+{
+    var available=JObject.FromObject(sync.State())["items"]!.ToObject<List<LibrarySyncItem>>()!;var excluded=available.Single(i=>i.Kind=="hatches");
+    var exclusionPresence=new JObject{[excluded.Id]=new JObject{["inScope"]=false}};var capture=Capture(available,exclusionPresence,"SAVED_FILE");
+    sync.RegisterLive(capture.Value<string>("id")!);var preparedExclusion=JObject.FromObject(sync.PrepareLiveApproval(new JObject{["reviewId"]=capture["id"]!.DeepClone(),["savedId"]=capture["id"]!.DeepClone()}));
+    string beforeDwg=Json.FileHash(source);await sync.ApproveCad(new JObject{["id"]=preparedExclusion["id"]!.DeepClone(),["choices"]=new JObject{[excluded.Id]="exclude"}},CancellationToken.None);
+    Check(!JObject.FromObject(sync.State())["items"]!.Any(i=>i.Value<string>("Id")==excluded.Id)&&JObject.FromObject(qa.Read("hatches"))["items"]!.Count()==0,"Outside hatch remains available in state or catalog");
+    Check(Json.FileHash(source)==beforeDwg,"Catalog exclusion modified CAD");
+    Console.WriteLine("PASS: outside hatch exclusion removes consumer choices and preserves DWG");
+}
 // Remove only this test's uniquely owned sandbox.
 if(args.Contains("--keep"))Console.WriteLine("FIXTURE="+root);else Directory.Delete(root, true);

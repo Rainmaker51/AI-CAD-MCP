@@ -17,6 +17,7 @@ internal sealed class CadLoadedTool {
 }
 internal sealed class CadToolRuntime:IDisposable {
  static readonly HashSet<Assembly> managerAssemblies=new();
+ static readonly Dictionary<string,AssemblyName[]> metadataReferences=new(StringComparer.Ordinal);
  readonly CadToolCatalog catalog;readonly string cache;readonly Dictionary<string,CadLoadedTool> loaded=new();readonly Dictionary<Assembly,string> folders=new();readonly Dictionary<string,string> dependencies=new(StringComparer.OrdinalIgnoreCase);
  readonly Action<string,string>? dispatch;
  internal CadToolRuntime(InstallConfig config,Action<string,string>? dispatch=null){catalog=new CadToolCatalog(config.ContentRoot);cache=Path.Combine(config.DataRoot,"tool-manager","runtime-cache");this.dispatch=dispatch;AppDomain.CurrentDomain.AssemblyResolve+=Resolve;}
@@ -25,6 +26,8 @@ internal sealed class CadToolRuntime:IDisposable {
   var shared=new[]{typeof(Plugin).Assembly,typeof(CadToolCatalog).Assembly,typeof(Newtonsoft.Json.Linq.JObject).Assembly}
    .FirstOrDefault(assembly=>string.Equals(assembly.FullName,args.Name,StringComparison.OrdinalIgnoreCase));
   if(shared!=null)return shared;
+  var requested=new AssemblyName(args.Name);
+  if(requested.Name=="Rainmaker.Library.Reader")return CadReaderDependency.Load(requested);
   // Axis 1.2.0 was compiled against Bridge 0.7.14. Keep it on the host's
   // compatible Bridge API instead of loading a second Manager into AutoCAD.
   var bridge=typeof(Plugin).Assembly;
@@ -44,6 +47,15 @@ internal sealed class CadToolRuntime:IDisposable {
  internal CadLoadedTool Load(CadToolEntry tool,bool reload=false){
   string file=catalog.Demand(tool);if(tool.Kind!="dotnet")throw new CadException("TOOL_TYPE","Chọn công cụ DLL.");
   if(loaded.TryGetValue(tool.Id,out var current)&&current.Package==tool.PackageHash&&!reload)return current;
+  // Check the optional dependency before loading Axis into the execution context.
+  // A missing Reader can then be installed and retried without poisoning the session.
+  string metadataHash=JsonUtil.FileHash(file);
+  if(!metadataReferences.TryGetValue(metadataHash,out var references)){
+   try{references=Assembly.ReflectionOnlyLoad(File.ReadAllBytes(file)).GetReferencedAssemblies();metadataReferences[metadataHash]=references;}
+   catch(FileLoadException){throw new CadException("TOOL_RESTART_REQUIRED","DLL đã đổi trong phiên. Mở lại AutoCAD trước khi nạp gói mới.");}
+  }
+  foreach(var reference in references.Where(a=>a.Name==CadSharedComponentStore.ReaderName))CadReaderDependency.Load(reference);
+  catalog.Demand(tool);
   string mainIdentity=AssemblyName.GetAssemblyName(file).Name;
   if(AppDomain.CurrentDomain.GetAssemblies().Any(a=>!a.IsDynamic&&a.GetName().Name==mainIdentity&&!managerAssemblies.Contains(a)))throw new CadException("TOOL_RESTART_REQUIRED","DLL đã được nạp ngoài Manager. Gỡ tự nạp/NETLOAD cũ và mở lại AutoCAD rồi nạp qua Manager.");
   // A fresh shadow folder leaves the imported/source DLL unlocked. CLR assemblies cannot be unloaded individually in AutoCAD 2021.
@@ -51,6 +63,7 @@ internal sealed class CadToolRuntime:IDisposable {
   foreach(string source in Directory.GetFiles(Path.GetDirectoryName(file)!))File.Copy(source,Path.Combine(folder,Path.GetFileName(source)));
   foreach(string dependency in Directory.GetFiles(folder,"*.dll").Where(p=>Path.GetFileName(p)!=Path.GetFileName(file))){string identity;try{identity=AssemblyName.GetAssemblyName(dependency).FullName;}catch(BadImageFormatException){continue;}if(dependencies.TryGetValue(identity,out string hash)&&hash!=JsonUtil.FileHash(dependency))throw new CadException("TOOL_RESTART_REQUIRED","Dependency đã đổi. Mở lại AutoCAD: "+Path.GetFileName(dependency));}
   Assembly assembly;try{assembly=Assembly.LoadFile(Path.Combine(folder,Path.GetFileName(file)));}catch(System.Exception e){throw new CadException("TOOL_LOAD","Không nạp được DLL .NET Framework 4.8 x64: "+e.Message);}
+  foreach(var reference in assembly.GetReferencedAssemblies().Where(a=>a.Name==CadSharedComponentStore.ReaderName))CadReaderDependency.Load(reference);
   folders[assembly]=folder;managerAssemblies.Add(assembly);var result=new CadLoadedTool{Package=tool.PackageHash,Assembly=assembly};
   Type[] types;try{types=assembly.GetExportedTypes();}catch(ReflectionTypeLoadException e){throw new CadException("TOOL_DEPENDENCY",string.Join("; ",e.LoaderExceptions.Where(x=>x!=null).Select(x=>x.Message).Take(4)));}
   foreach(var type in types.Where(t=>!t.IsAbstract&&!t.ContainsGenericParameters))foreach(var method in type.GetMethods(BindingFlags.Public|BindingFlags.Static|BindingFlags.Instance).Where(m=>m.ReturnType==typeof(void)&&m.GetParameters().Length==0&&!m.ContainsGenericParameters))foreach(CommandMethodAttribute attr in method.GetCustomAttributes(typeof(CommandMethodAttribute),false)){

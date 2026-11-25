@@ -1,5 +1,7 @@
 # Mã định danh tài nguyên thư viện
 
+Từ Manager 0.10.0 / Reader 1.0.0, consumer mới tra mã và phân giải khóa qua [Reader V1](LIBRARY-READER-PROTOCOL.md), không cần tự đọc sổ mã cùng nhiều file danh mục. Phần cấu trúc lưu bên dưới dành cho QA/adapter và giải thích dữ liệu; ID/mã vẫn giữ nguyên. Axis 1.9.0 đã chuyển sang giao thức này.
+
 Khi viết add-in mới, đọc thêm [quy định dùng kho](LIBRARY-CONSUMER-STANDARD.md). Các ghi nhận ban đầu về cấp mã dưới đây không thay thế yêu cầu tích hợp xóa/gộp và nạp lại cấu hình theo QA 1.8.1.
 
 Ngày: 20/11/2026. Phạm vi hiện tại: Block, Layer, Dim, Text và Hatch của nguồn `ISO_QUANGANH` đã được đồng bộ. Không triển khai tab tổng hợp ai đang sử dụng kho.

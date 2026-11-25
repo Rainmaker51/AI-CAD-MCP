@@ -54,6 +54,7 @@ internal sealed class QaClient:IDisposable
             else if(action=="activate")result=library.Activate();
             else if(action=="manage")result=library.Manage(p);
             else if(action=="group")result=library.Group(p);
+            else if(action=="group-tree")result=repository.ApplyQaGroupTree(p);
             else if(action=="block-usage")result=repository.ConfigureQaBlock(p);
             else if(action=="live/register")result=repository.RegisterLive(p.Value<string>("id")??"");
             else if(action=="live/prepare")result=repository.PrepareLiveApproval(p);

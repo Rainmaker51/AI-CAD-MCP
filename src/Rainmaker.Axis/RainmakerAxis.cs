@@ -77,7 +77,7 @@ public sealed partial class RainmakerAxis
              if(System.Windows.MessageBox.Show(detail+"Áp dụng cập nhật?","Cập nhật lưới",System.Windows.MessageBoxButton.YesNo)!=System.Windows.MessageBoxResult.Yes)return;
              ExecuteChange(doc,replace=>GridStore.Apply(doc.Database,CurrentLibrary(parameters!.Library!,false,parameters),parameters,EditingOrigin(editing,parameters),editing,true,replace));editor.Regen();return;
             }
-            RunGrid(doc, new ContentStore(plugin.Config.ContentRoot).Template("ISO_QUANGANH"), parameters);
+            RunGrid(doc, parameters!.Library!.Template, parameters);
             return;
         }
         var first = editor.GetPoint("\nChọn đầu thứ nhất của trục: ");

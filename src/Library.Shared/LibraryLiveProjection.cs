@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json.Linq;
@@ -42,7 +42,7 @@ internal static class LibraryLiveProjection
             bool missingSample=kind=="blocks"&&presence?.Value<bool?>("samplePresent")==false;
             row["presence"]=presence?.DeepClone();
             bool changed=previous!=null&&previous["item"]?["Values"]!=null&&!JToken.DeepEquals(previous["item"]!["Values"],values);
-            row["liveStatus"]=missingSample?"DEFINITION_ONLY":previous==null?"NEW":changed?"CHANGED":"PRESENT";
+            row["liveStatus"]=presence?.Value<bool?>("inScope")==false?"OUT_OF_SCOPE":missingSample?"DEFINITION_ONLY":previous==null?"NEW":changed?"CHANGED":"PRESENT";
             row["useReviewed"]=kind=="blocks"?(row["profile"]?["Usage"] as JObject)?.Value<bool?>("Reviewed")??false:row["management"]!.Value<bool?>("Reviewed")??false;
             if(changed||previous==null)row["image"]="";
             rows.Add(row);

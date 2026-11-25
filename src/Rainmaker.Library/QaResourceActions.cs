@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -82,7 +82,7 @@ internal sealed partial class QaBrowserWindow
         try
         {
             var review=await Api("live/register",new(){["id"]=saved["id"]!.DeepClone()});
-            var differences=(review["differences"] as JArray??new()).OfType<JObject>().Where(d=>d.Value<string>("Status")!="MATCH"&&d.Value<string>("Status")!="CAD_DEFINITION_ONLY").ToList();
+            var differences=(review["differences"] as JArray??new()).OfType<JObject>().Where(d=>d.Value<string>("Status")!="MATCH"&&d.Value<string>("Status")!="CAD_DEFINITION_ONLY"&&d.Value<string>("Status")!="CAD_OUT_OF_SCOPE").ToList();
             if(differences.Count==0)return;
             var choices=new JObject();foreach(var d in differences)choices[d.Value<string>("Id")!]=d["Cad"]?.Type==JTokenType.Null||d["Cad"]==null||d.Value<string>("Status")=="CAD_SAMPLE_MISSING"?"remove":"cad";
             var prepared=await Api("live/prepare",new(){["reviewId"]=saved["id"]!.DeepClone(),["savedId"]=saved["id"]!.DeepClone()});
@@ -132,6 +132,7 @@ internal sealed partial class QaBrowserWindow
     {
         if(journal["consumerRemap"] is JObject remap){remap["operation"]=Path.GetFileName(Path.GetDirectoryName(journal.Value<string>("backup")!));await Api("remap-consumers",remap);}
         if(journal["groupAction"] is not JObject p)return;
+        if(p["afterGroups"] is JArray){await Api("group-tree",p);return;}
         var view=await Api(p.Value<string>("kind")!);var groups=view["groups"]!.OfType<JObject>().ToList();
         string id=p.Value<string>("id")??"";
         if(p.Value<string>("action")=="remove"&&groups.All(g=>g.Value<string>("Id")!=id))return;
@@ -163,10 +164,11 @@ internal sealed partial class QaBrowserWindow
         try{if(fresh.Value<string>("signature")!=capture!.Value<string>("signature"))throw new InvalidOperationException("CAD đã thay đổi. Làm mới rồi chọn lại trước khi thực hiện.");}
         finally{QaCadSnapshot.Discard(client.Config,fresh);}
         var existingReview=await Api("live/register",new(){["id"]=capture!["id"]!.DeepClone()});
-        var existingChanges=existingReview["differences"]!.OfType<JObject>().Where(d=>d.Value<string>("Status") is not ("MATCH" or "CAD_DEFINITION_ONLY")).ToList();
-        if(existingChanges.Count>0)throw new InvalidOperationException("Có thay đổi CAD chưa được duyệt. Quét và xác nhận trước khi sửa thông tin quản lý hoặc xếp gọn.");
+        var existingChanges=existingReview["differences"]!.OfType<JObject>().Where(d=>d.Value<string>("Status") is not ("MATCH" or "CAD_DEFINITION_ONLY" or "CAD_OUT_OF_SCOPE")).ToList();
+        if(existingChanges.Count>0&&operation!="group")throw new InvalidOperationException("Có thay đổi CAD chưa được duyệt. Quét và xác nhận trước khi sửa thông tin quản lý hoặc xếp gọn.");
+        if(groupAction?["afterGroups"] is JArray){var check=(JObject)groupAction.DeepClone();check["checkOnly"]=true;await Api("group-tree",check);}
         var missing=existingChanges.Where(d=>d["App"] is JObject&&(d["Cad"]==null||d["Cad"]!.Type==JTokenType.Null||d.Value<string>("Status")=="CAD_SAMPLE_MISSING")).Select(d=>d["App"]!.ToObject<LibrarySyncItem>()!).ToList();await CheckRemoval(missing);
-        if(existingChanges.Count>0&&MessageBox.Show(this,"Lần cập nhật này cũng sẽ đưa "+existingChanges.Count+" thay đổi đang chờ của DWG vào kho:\n"+string.Join("\n",existingChanges.Take(20).Select(d=>d.Value<string>("Status")+" · "+(d["Cad"] is JObject cad?cad:d["App"])?["Name"])),"Các thay đổi cùng cập nhật",MessageBoxButton.OKCancel)!=MessageBoxResult.OK)return;
+        // Group management never approves unrelated native parameter changes.
         string folder=Path.Combine(WarehousePaths.Resolve(client.Config.ContentRoot),"Versions","qa-mutations",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);
         string backup=Path.Combine(folder,"before.dwg");QaCadSnapshot.CopyShared(Source,backup);
         var journal=new JObject{["source"]=Source,["sourceId"]="ISO_QUANGANH",["operation"]=operation,["backup"]=backup,["backupRelative"]="Versions/qa-mutations/"+Path.GetFileName(folder)+"/before.dwg",["metadata"]=metadata??new JArray(),["groupAction"]=groupAction,["consumerRemap"]=consumerRemap,["phase"]="PREPARED",["createdUtc"]=DateTime.UtcNow};JsonUtil.Atomic(PendingFile,journal);
@@ -181,8 +183,8 @@ internal sealed partial class QaBrowserWindow
                 doc.Database.SaveAs(Source,true,DwgVersion.Current,doc.Database.SecurityParameters);
                 doc.Editor.Regen();
             }
-            journal["phase"]="CAD_SAVED";journal["sourceHash"]=JsonUtil.FileHash(Source);JsonUtil.Atomic(PendingFile,journal);
-            await Api("metadata-check",new(){["metadata"]=journal["metadata"]!.DeepClone()});await ApplyGroupJournal(journal);await PublishSavedDrawing();await MirrorNativeMetadata();await ApplyMetadataJournal(journal);journal["phase"]="COMPLETE";JsonUtil.Atomic(Path.Combine(folder,"result.json"),journal);File.Delete(PendingFile);
+            journal["phase"]="CAD_SAVED";journal["sourceHash"]=AICad.Application.QaUpdateJournal.SharedHash(Source);JsonUtil.Atomic(PendingFile,journal);
+            await Api("metadata-check",new(){["metadata"]=journal["metadata"]!.DeepClone()});await ApplyGroupJournal(journal);if(groupAction?["afterGroups"] is not JArray){await PublishSavedDrawing();await MirrorNativeMetadata();}await ApplyMetadataJournal(journal);journal["phase"]="COMPLETE";JsonUtil.Atomic(Path.Combine(folder,"result.json"),journal);File.Delete(PendingFile);
             await RefreshLive();status.Text="Đã cập nhật DWG nguồn và danh mục kho. Bản sao trước thao tác: "+backup;
         }
         catch(Exception error)
@@ -202,14 +204,14 @@ internal sealed partial class QaBrowserWindow
             if(!System.Text.RegularExpressions.Regex.IsMatch(relative,"^Versions/qa-mutations/[a-f0-9]{32}/before\\.dwg$"))throw new InvalidOperationException("Đường dẫn bản sao của giao dịch không hợp lệ.");
             pending["backup"]=Path.Combine(WarehousePaths.Resolve(client!.Config.ContentRoot),relative.Replace('/',Path.DirectorySeparatorChar));
             QaCadEditor.Open(Source);QaCadEditor.DemandSaved(Source);
-            if(pending.Value<string>("sourceHash") is string hash&&hash!=JsonUtil.FileHash(Source))throw new InvalidOperationException("DWG đã thay đổi sau thao tác chờ. Không tự tiếp tục trên bản khác; giữ bản sao để đối chiếu.");
+            if(pending.Value<string>("sourceHash") is string hash&&hash!=AICad.Application.QaUpdateJournal.SharedHash(Source))throw new InvalidOperationException("DWG đã thay đổi sau thao tác chờ. Không tự tiếp tục trên bản khác; giữ bản sao để đối chiếu.");
             if(pending.Value<string>("sourceHash")==null)
             {
                 if(pending.Value<string>("expectedSignature") is not string expected)throw new InvalidOperationException("Thao tác dừng trước khi ghi nhận kết quả CAD. Giữ bản sao để đối chiếu; chưa xác nhận đồng bộ.");
                 var actual=QaCadSnapshot.CaptureSaved(client.Config,Source,hints);
                 try{if(actual.Value<string>("signature")!=expected)throw new InvalidOperationException("DWG đã lưu chưa đúng nội dung thao tác chờ. Chưa thể hoàn tất đồng bộ.");}finally{QaCadSnapshot.Discard(client.Config,actual);}
             }
-            await Api("metadata-check",new(){["metadata"]=pending["metadata"]!.DeepClone()});await ApplyGroupJournal(pending);await PublishSavedDrawing();await MirrorNativeMetadata();await ApplyMetadataJournal(pending);pending["phase"]="COMPLETE";JsonUtil.Atomic(Path.Combine(Path.GetDirectoryName(pending.Value<string>("backup")!)!,"result.json"),pending);File.Delete(PendingFile);
+            await Api("metadata-check",new(){["metadata"]=pending["metadata"]!.DeepClone()});await ApplyGroupJournal(pending);if(pending["groupAction"]?["afterGroups"] is not JArray){await PublishSavedDrawing();await MirrorNativeMetadata();}await ApplyMetadataJournal(pending);pending["phase"]="COMPLETE";JsonUtil.Atomic(Path.Combine(Path.GetDirectoryName(pending.Value<string>("backup")!)!,"result.json"),pending);File.Delete(PendingFile);
         }
         else
         {

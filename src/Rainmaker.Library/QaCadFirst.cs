@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -28,24 +28,66 @@ internal sealed partial class QaBrowserWindow
         try
         {
             var review=await Api("live/register",new(){["id"]=saved["id"]!.DeepClone()});
-            var groups=new Dictionary<string,string>();var labels=new JObject();
+            var groups=new Dictionary<string,string>();var labels=new JObject();var groupViews=new Dictionary<string,JObject>();
             foreach(string k in LibrarySyncRules.Kinds)
             {
-                var view=await Api(k);var tree=view["groups"]!.ToObject<List<LibraryGroup>>()!;
+                var view=await Api(k);groupViews[k]=view;var tree=view["groups"]!.ToObject<List<LibraryGroup>>()!;
                 string PathFor(string id){var names=new List<string>();var seen=new HashSet<string>();while(id!=""&&seen.Add(id)){var g=tree.SingleOrDefault(x=>x.Id==id);if(g==null)break;names.Insert(0,g.Name);id=g.ParentId;}return string.Join(" / ",names);}
                 foreach(var row in view["items"]!.OfType<JObject>())
                 {
                     string id=row.Value<string>("id")??"";if(id==""||labels[id]!=null)continue;
                     labels[id]=row["management"]!.DeepClone();groups[id]=PathFor(row["management"]!.Value<string>("GroupId")??"");
+                    foreach(var difference in review["differences"]!.OfType<JObject>().Where(d=>d.Value<string>("Id")==id))difference["Code"]=row["code"]?.DeepClone()??"";
                 }
             }
+            review["groupDifferences"]=QaGroupComparison.Compare(groupViews,saved);
             var dialog=new QaCadReview(review,groups);if(AcApp.ShowModalWindow(dialog)!=true){status.Text="Đã quét. Chưa cập nhật kho hoặc trình bày.";return;}
             var plan=dialog.Plan;plan["sourceHash"]=saved["snapshotHash"]!.DeepClone();plan["appHash"]=review["appHash"]!.DeepClone();plan["labels"]=labels;
-            await ApplyCadPlan(plan);
+            await ApplyReviewedPlan(plan);
         }
         finally{QaCadSnapshot.Discard(client.Config,saved);}
     }
     static string EffectiveId(JObject row)=>row.Value<string>("bindId") is string bind&&bind!=""?bind:row.Value<string>("id")!;
+    async Task ApplyReviewedPlan(JObject plan)
+    {
+        if(QaUpdateJournal.SharedHash(Source)!=plan.Value<string>("sourceHash"))throw new CadException("SOURCE_CHANGED","Nguồn đã đổi sau lúc đối chiếu. Quét lại.");
+        await Api("validate-view",new(){["appHash"]=plan["appHash"]!.DeepClone()});
+        string previousKind=kind;
+        foreach(var action in (plan["groupChanges"] as JArray??new()).OfType<JObject>().OrderBy(p=>(p.Value<string>("parentPath")??"").Split('/').Length))
+        {
+            kind=action.Value<string>("kind")!;await RefreshLive();var tree=state["groups"]!.ToObject<List<LibraryGroup>>()!;
+            if(action.Value<string>("action")=="remove")
+            {
+                group=action.Value<string>("id")!;if(!tree.Any(g=>g.Id==group))continue;
+                await RemoveGroup();if(state["groups"]!.OfType<JObject>().Any(g=>g.Value<string>("Id")==action.Value<string>("id")))return;
+            }
+            else
+            {
+                var request=(JObject)action.DeepClone();string parentPath=request.Value<string>("parentPath")??"";
+                request["parentId"]=parentPath==""?"":tree.Single(g=>TreePath(tree,g.Id)==parentPath).Id;
+                if(request.Value<string>("action")=="create")
+                {var existing=tree.SingleOrDefault(g=>g.Name==request.Value<string>("name")&&g.ParentId==request.Value<string>("parentId"));if(existing!=null){request["id"]=existing.Id;request.Remove("action");}}
+                await SyncGroup(request);
+            }
+        }
+        kind=previousKind;await RefreshLive();
+        if((plan["rows"] as JArray)?.Count>0)
+        {
+            var saved=QaCadSnapshot.CaptureSaved(client!.Config,Source,hints);
+            try
+            {
+                var review=await Api("live/register",new(){["id"]=saved["id"]!.DeepClone()});
+                foreach(var row in plan["rows"]!.OfType<JObject>().Where(r=>r.Value<string>("action")=="cad"))
+                {
+                    var actual=saved["items"]!.ToObject<List<LibrarySyncItem>>()!.Single(i=>i.Id==row.Value<string>("id"));var before=row["native"]!.ToObject<LibrarySyncItem>()!;
+                    if(actual.ContentSignature()!=before.ContentSignature())throw new CadException("RESOURCE_CHANGED","Thông số tài nguyên đã đổi khi xử lý nhóm. Quét lại để duyệt.");
+                    if(row.Value<string>("group")==before.Group)row["group"]=actual.Group;row["native"]=JObject.FromObject(actual);
+                }
+                plan["sourceHash"]=saved["snapshotHash"]!.DeepClone();plan["appHash"]=review["appHash"]!.DeepClone();await ApplyCadPlan(plan);
+            }
+            finally{QaCadSnapshot.Discard(client.Config,saved);}
+        }
+    }
     async Task ApplyCadPlan(JObject plan)
     {
         PublishProgress("VALIDATING_PLAN");
@@ -54,24 +96,36 @@ internal sealed partial class QaBrowserWindow
         if(QaUpdateJournal.SharedHash(Source)!=plan.Value<string>("sourceHash"))throw new CadException("SOURCE_CHANGED","DWG đã đổi sau khi xem. Quét lại trước khi áp dụng.");
         await Api("validate-view",new(){["appHash"]=plan["appHash"]!.DeepClone()});
         var rows=plan["rows"]!.OfType<JObject>().ToList();
-        var removals=rows.Where(r=>r.Value<string>("action")=="remove"&&r["app"] is JObject).Select(r=>r["app"]!.ToObject<LibrarySyncItem>()!).ToList();await CheckRemoval(removals);
+        var removals=rows.Where(r=>r.Value<string>("action") is ("remove" or "exclude")&&r["app"] is JObject).Select(r=>r["app"]!.ToObject<LibrarySyncItem>()!).ToList();await CheckRemoval(removals);
         foreach(var merge in rows.Where(r=>r.Value<string>("mergeId")!=""))
             await CheckRemoval(hints.Where(i=>i.Id==merge.Value<string>("id")).ToList(),merge.Value<string>("mergeId")!);
         var record=Journal.Begin(plan);
         PublishProgress("PREPARED");
+        if(rows.All(r=>r.Value<string>("action")=="exclude"))
+        {
+            record["afterHash"]=QaUpdateJournal.SharedHash(Source);record["phase"]="CAD_SAVED";Journal.Save(record);
+            await FinishCadPlan(record);return;
+        }
         try
         {
             var doc=Commands.Document;using(var locked=doc.LockDocument())
             {
                 using(var tx=doc.Database.TransactionManager.StartTransaction())
                 {
-                    var native=LibrarySyncNative.ReadDrawing(doc.Database,tx,hints);
+                    var native=LibrarySyncNative.ReadFramed(doc.Database,tx,hints,out var scopePresence);
+                    foreach(var row in rows)
+                    {
+                        string id=row.Value<string>("id")!;
+                        if(scopePresence[id]?.Value<bool?>("inScope")==false&&row.Value<string>("action")!="exclude")throw new CadException("LIBRARY_OUT_OF_SCOPE","Mẫu nằm ngoài khung. Đưa vào đúng khung và quét lại trước khi cập nhật.");
+                        string target=row.Value<string>("mergeId")??"";
+                        if(target!=""&&scopePresence[target]?.Value<bool?>("inScope")!=true)throw new CadException("LIBRARY_OUT_OF_SCOPE","Hatch đích không nằm trong khung Hatch.");
+                    }
                     foreach(var row in rows.Where(r=>r.Value<string>("bindId")!=""))
                     {var actual=native.Single(i=>i.Id==row.Value<string>("id"));LibrarySyncNative.BindCadIdentity(doc.Database,tx,actual,row.Value<string>("bindId")!);}
-                    native=LibrarySyncNative.ReadDrawing(doc.Database,tx,hints);
+                    native=LibrarySyncNative.ReadFramed(doc.Database,tx,hints,out _);
                     foreach(var row in rows.Where(r=>r.Value<string>("mergeId")!=""))
                     {var from=native.Single(i=>i.Id==EffectiveId(row));var to=native.Single(i=>i.Id==row.Value<string>("mergeId"));LibrarySyncNative.ConsolidateCadHatchIdentity(doc.Database,tx,from,to);}
-                    native=LibrarySyncNative.ReadDrawing(doc.Database,tx,hints);
+                    native=LibrarySyncNative.ReadFramed(doc.Database,tx,hints,out _);
                     var selected=new List<LibrarySyncItem>();var newIds=new HashSet<string>();
                     foreach(var row in rows.Where(r=>r.Value<string>("action")=="cad"&&r.Value<string>("mergeId")==""))
                     {
@@ -84,7 +138,7 @@ internal sealed partial class QaBrowserWindow
                     // after a user has already made native hatch configurations equal.
                     foreach(string target in rows.Select(r=>r.Value<string>("mergeId")??"").Where(s=>s!="").Distinct())if(selected.All(i=>i.Id!=target))selected.Add(native.Single(i=>i.Id==target));
                     LibrarySyncNative.PresentFromCad(doc.Database,tx,selected,newIds,hints);
-                    LibrarySyncNative.RemoveOrphanPresentation(doc.Database,tx,removals.Select(i=>i.Id));tx.Commit();
+                    LibrarySyncNative.RemoveOrphanPresentation(doc.Database,tx,rows.Where(r=>r.Value<string>("action")=="remove").Select(r=>r.Value<string>("id")!));tx.Commit();
                 }
                 PublishProgress("PRESENTATION_COMMITTED");doc.Database.SaveAs(Source,true,DwgVersion.Current,doc.Database.SecurityParameters);PublishProgress("SOURCE_SAVED");doc.Editor.Regen();
             }
@@ -106,11 +160,11 @@ internal sealed partial class QaBrowserWindow
                 string id=EffectiveId(row),merge=row.Value<string>("mergeId")??"";
                 if(merge!="")
                 {if(differences.Any(d=>d.Value<string>("Id")==id&&d["App"] is JObject&&d["Cad"] is not JObject))choices[id]="remove";choices[merge]="cad";}
-                else if(row.Value<string>("action")=="remove")
-                {if(differences.Any(d=>d.Value<string>("Id")==id&&d["App"] is JObject))choices[id]="remove";}
+                else if(row.Value<string>("action") is "remove" or "exclude")
+                {if(differences.Any(d=>d.Value<string>("Id")==id&&d["App"] is JObject))choices[id]=row.Value<string>("action");}
                 else choices[id]="cad";
             }
-            bool applied=choices.Properties().All(p=>p.Value.Value<string>()=="remove"?differences.All(d=>d.Value<string>("Id")!=p.Name||d["App"] is not JObject):differences.Any(d=>d.Value<string>("Id")==p.Name&&d.Value<string>("Status")=="MATCH"));
+            bool applied=choices.Properties().All(p=>p.Value.Value<string>() is "remove" or "exclude"?differences.All(d=>d.Value<string>("Id")!=p.Name||d["App"] is not JObject):differences.Any(d=>d.Value<string>("Id")==p.Name&&d.Value<string>("Status")=="MATCH"));
             if(!applied&&review.Value<string>("appHash")!=plan.Value<string>("appHash"))throw new CadException("RESOURCE_CHANGED","Kho đã thay đổi sau khi xem kế hoạch. Giữ CAD và quét lại để đối chiếu, không ghi đè phiên khác.");
             foreach(var group in rows.Where(r=>r.Value<string>("mergeId")!=""&&r["app"] is JObject).GroupBy(r=>r.Value<string>("mergeId")!))
                 await Api("remap-consumers",new(){["target"]=group.Key,["ids"]=JArray.FromObject(group.Select(r=>r.Value<string>("id"))),["operation"]=Path.GetFileName(Journal.Folder(record))});

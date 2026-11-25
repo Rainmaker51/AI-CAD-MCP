@@ -22,6 +22,9 @@ for name in ['result.json','live-insert.json','hatch-view.json','standalone.json
 if tuple(map(int,version.split('.'))) >= (1,8,2):evidence['layer-rename.json']=native/'library-data/layer-rename.json'
 if tuple(map(int,version.split('.'))) >= (1,9,0):
     for name in ['cad-first.json','cad-publication.json']:evidence[name]=native/'library-data'/name
+if tuple(map(int,version.split('.'))) >= (1,10,0):evidence['frame-scope.json']=native/'library-data/frame-scope.json'
+if tuple(map(int,version.split('.'))) >= (1,11,0):
+    for name in ['groups.json','group-publication.json','review-filters.json']:evidence[name]=native/'library-data'/name
 for path in evidence.values():assert read(path)['passed'],path
 files=[{'name':p.name,'hash':sha(p),'bytes':p.stat().st_size} for p in sorted((stage/'package').iterdir(),key=lambda p:p.name.lower()) if p.is_file()]
 assert len(files)==7
@@ -34,7 +37,7 @@ fingerprint=hashlib.sha256(''.join(f"{f['name']}\t{f['hash']}\n" for f in files)
 out=development/'versions'/version/('build-'+fingerprint[:12])
 if out.exists():raise SystemExit('Immutable build exists: '+str(out))
 out.mkdir(parents=True);shutil.copytree(stage/'package',out/'package')
-guide='QA-LIBRARY-1.9.md' if tuple(map(int,version.split('.'))) >= (1,9,0) else 'QA-LIBRARY-1.8.md'
+guide='QA-LIBRARY-1.11.1.md' if tuple(map(int,version.split('.'))) >= (1,11,1) else 'QA-LIBRARY-1.11.md' if tuple(map(int,version.split('.'))) >= (1,11,0) else 'QA-LIBRARY-1.10.md' if tuple(map(int,version.split('.'))) >= (1,10,0) else 'QA-LIBRARY-1.9.md' if tuple(map(int,version.split('.'))) >= (1,9,0) else 'QA-LIBRARY-1.8.md'
 shutil.copy2(repo/'docs'/guide,out/'HUONG_DAN.md');shutil.copy2(repo/'tools/Install-QaLibrary.ps1',out/'Install-QaLibrary.ps1')
 validation=out/'validation';validation.mkdir()
 for name,path in evidence.items():shutil.copy2(path,validation/name)
@@ -42,6 +45,7 @@ business=repo/'.tools/qa-business-results.log'
 assert 'PASS: deletion dependency preflight' in business.read_text(encoding='utf-8-sig')
 shutil.copy2(business,validation/'business-tests.log')
 shutil.copy2(native/'library-data/browser.png',validation/'browser.png')
+if tuple(map(int,version.split('.'))) >= (1,11,0):shutil.copy2(native/'library-data/review-filters.png',validation/'review-filters.png')
 # Preserve the earlier regression failure that motivated explicit un-erase recovery.
 failure=sorted(p for p in (repo/'.tools/test-runs').glob('qa-native-*/validation/native-*/ribbon-manager-results.json') if 'rollback' in p.read_text(encoding='utf-8-sig').lower() and not read(p)['passed'])
 if failure:shutil.copy2(failure[-1],validation/'rollback-before-fix.json')

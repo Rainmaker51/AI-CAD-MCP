@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -22,6 +22,8 @@ public sealed partial class LibrarySyncNative
     }
     const string ResourceKey = "AICAD_SYNC_RESOURCE";
     const string SampleKey = "AICAD_SYNC_SAMPLE";
+    const string NativeSampleKey = "AICAD_SYNC_NATIVE_SAMPLE";
+    public static bool IsPresentationHelper(Entity entity,Transaction tx)=>Metadata(entity,tx,SampleKey)!=null&&Metadata(entity,tx,NativeSampleKey)==null&&(entity is MText||entity is Polyline);
     static string Root => Environment.GetEnvironmentVariable("AICAD_LIBRARY_JOB") ?? "";
 
     [CommandMethod("AICADLIBRARYSYNC")]
@@ -133,13 +135,14 @@ public sealed partial class LibrarySyncNative
         var values=JObject.FromObject(new{pattern=h.PatternName,type=h.PatternType.ToString(),scale=h.PatternScale,angle=h.PatternAngle,layer=h.Layer,spacing=h.PatternSpace,doublePattern=h.PatternDouble});values.Merge(ColorValues(h));return values;
     }
 
-    static List<LibrarySyncItem> Read(Database db, Transaction tx, List<LibrarySyncItem> hints)
+    static List<LibrarySyncItem> Read(Database db, Transaction tx, List<LibrarySyncItem> hints, LibraryScanScope? scope=null)
     {
         var result = new List<LibrarySyncItem>();
+        bool Wanted(DBObject obj,string kind,string name)=>scope==null||scope.Includes(kind,obj.Handle.ToString())||hints.Any(h=>h.Kind==kind&&(h.Handle==obj.Handle.ToString()||string.Equals(h.Name,name,StringComparison.OrdinalIgnoreCase)||Metadata(obj,tx,ResourceKey)?.Id==h.Id));
         foreach (ObjectId id in (LayerTable)tx.GetObject(db.LayerTableId, OpenMode.ForRead))
         {
             var l = (LayerTableRecord)tx.GetObject(id, OpenMode.ForRead);
-            if (l.IsDependent) continue;
+            if (l.IsDependent||!Wanted(l,"layers",l.Name)) continue;
             var type = (LinetypeTableRecord)tx.GetObject(l.LinetypeObjectId, OpenMode.ForRead);
             result.Add(Item(l, tx, "layers", l.Name, JObject.FromObject(new
             {
@@ -151,14 +154,14 @@ public sealed partial class LibrarySyncNative
         foreach (ObjectId id in (TextStyleTable)tx.GetObject(db.TextStyleTableId, OpenMode.ForRead))
         {
             var s = (TextStyleTableRecord)tx.GetObject(id, OpenMode.ForRead);
-            if (s.IsDependent) continue;
+            if (s.IsDependent||!Wanted(s,"texts",s.Name)) continue;
             result.Add(Item(s, tx, "texts", s.Name, JObject.FromObject(new { font = Path.GetFileName(s.FileName), bigFont = Path.GetFileName(s.BigFontFileName),
                 height = s.TextSize, widthFactor = s.XScale, obliqueAngle = s.ObliquingAngle, vertical = s.IsVertical }), hints));
         }
         foreach (ObjectId id in (DimStyleTable)tx.GetObject(db.DimStyleTableId, OpenMode.ForRead))
         {
             var s = (DimStyleTableRecord)tx.GetObject(id, OpenMode.ForRead);
-            if (s.IsDependent) continue;
+            if (s.IsDependent||!Wanted(s,"dims",s.Name)) continue;
             result.Add(Item(s, tx, "dims", s.Name, JObject.FromObject(new
             {
                 textStyle = ((TextStyleTableRecord)tx.GetObject(s.Dimtxsty, OpenMode.ForRead)).Name,
@@ -170,11 +173,11 @@ public sealed partial class LibrarySyncNative
         }
         var hatchKeys = new HashSet<string>();
         var blockIds = ((BlockTable)tx.GetObject(db.BlockTableId, OpenMode.ForRead)).Cast<ObjectId>().ToArray();
-        foreach (ObjectId id in blockIds)
+        foreach (ObjectId id in scope==null?blockIds:blockIds.OrderByDescending(i=>((BlockTableRecord)tx.GetObject(i,OpenMode.ForRead)).Name==BlockTableRecord.ModelSpace).ToArray())
         {
             var b = (BlockTableRecord)tx.GetObject(id, OpenMode.ForRead);
             if (b.IsFromExternalReference || b.IsFromOverlayReference) continue;
-            if (!b.IsLayout && !b.IsAnonymous)
+            if (!b.IsLayout && !b.IsAnonymous&&Wanted(b,"blocks",b.Name))
             {
                 var properties = new JArray();
                 if(b.Name.StartsWith("AICAD_LIB_",StringComparison.OrdinalIgnoreCase))continue;
@@ -203,17 +206,19 @@ public sealed partial class LibrarySyncNative
             foreach (ObjectId child in b)
             {
                 if (tx.GetObject(child, OpenMode.ForRead) is not Hatch h) continue;
+                if(scope!=null&&!scope.Includes("hatches",h.Handle.ToString())&&!hints.Any(i=>i.Kind=="hatches"&&(i.Handle==h.Handle.ToString()||HatchMatch(i.Values,HatchValues(h)))))continue;
                 var resourceTag = Metadata(h, tx, ResourceKey);
-                if (Metadata(h, tx, SampleKey) != null && (resourceTag == null || resourceTag.Handle != h.Handle.ToString())) continue;
+                if (Metadata(h, tx, SampleKey) != null && (resourceTag == null || resourceTag.Handle != h.Handle.ToString()) && (scope==null||!scope.Includes("hatches",h.Handle.ToString()))) continue;
                 var values = JObject.FromObject(new { pattern = h.PatternName, type = h.PatternType.ToString(), scale = h.PatternScale,
                     angle = h.PatternAngle, layer = h.Layer, spacing = h.PatternSpace, doublePattern = h.PatternDouble });
                 values.Merge(ColorValues(h));
                 string key = JsonUtil.Hash(values);
-                var metadata = Metadata(h, tx, ResourceKey);
+                var metadata = Metadata(h, tx, ResourceKey) ?? (scope!=null&&scope.Includes("hatches",h.Handle.ToString())?Metadata(h,tx,SampleKey):null);
                 var known = hints.FirstOrDefault(i => i.Kind == "hatches" && (i.Handle == h.Handle.ToString() || HatchMatch(i.Values, values)));
                 if (metadata == null && known == null && !hatchKeys.Add(key)) continue;
                 hatchKeys.Add(key);
                 var item = Item(h, tx, "hatches", metadata?.Name ?? known?.Name ?? h.PatternName + " · " + h.PatternScale + " · " + Math.Round(h.PatternAngle * 180 / Math.PI, 2) + "°", values, hints);
+                if(metadata!=null&&scope!=null&&scope.Includes("hatches",h.Handle.ToString()))item.Id=metadata.Id;
                 if (metadata == null && known == null) item.Id = key.Substring(0, 32);
                 if (result.All(i => i.Id != item.Id)) result.Add(item);
             }
@@ -223,7 +228,7 @@ public sealed partial class LibrarySyncNative
         var model = (BlockTableRecord)tx.GetObject(table[BlockTableRecord.ModelSpace], OpenMode.ForRead);
         foreach (ObjectId id in model)
         {
-            if (tx.GetObject(id, OpenMode.ForRead) is not MText label) continue;
+            if (tx.GetObject(id, OpenMode.ForRead) is not MText label||!IsPresentationHelper(label,tx)) continue;
             var tagged = Metadata(label, tx, SampleKey);
             var resource = tagged == null ? null : result.FirstOrDefault(i => i.Id == tagged.Id);
             if (resource == null) continue;
@@ -437,6 +442,25 @@ public sealed partial class LibrarySyncNative
         Tag(obj,tx,ResourceKey,item);
     }
     public static List<LibrarySyncItem> ReadDrawing(Database db, Transaction tx, List<LibrarySyncItem> hints) => Read(db, tx, hints);
+
+    public static List<LibrarySyncItem> ReadFramed(Database db,Transaction tx,List<LibrarySyncItem> hints,out JObject presence)
+    {
+        var scope=new LibraryScanScope(db,tx);
+        var native=Read(db,tx,hints,scope);
+        var items=native.Where(i=>scope.Includes(i.Kind,i.Handle)||hints.Any(h=>h.Id==i.Id)).ToList();
+        presence=LibraryPresence.Read(db,tx,items);
+        foreach(var item in items)
+        {
+            bool inside=scope.Includes(item.Kind,item.Handle);
+            if(presence[item.Id] is not JObject)presence[item.Id]=new JObject();
+            var entry=(JObject)presence[item.Id]!;
+            entry["inScope"]=inside;
+            if(inside){item.Group=scope.Group(item.Kind,item.Handle);item.GroupEditedInCad=true;}
+        }
+        presence["scanScope"]=scope.Diagnostics;
+        presence["groups"]=LibraryFrames.GroupSnapshot(db,tx);
+        return items;
+    }
     public static void EditResource(Database db, Transaction tx, LibrarySyncItem item, List<LibrarySyncItem> hints)
     {
         LibrarySyncRules.Validate(item);
@@ -465,7 +489,7 @@ public sealed partial class LibrarySyncNative
         var displayed=Read(db,tx,hints.Concat(new[]{created}).ToList()).Where(i=>ModelHasSample(db,tx,i.Id)).ToList();
         LibraryFrames.AppendToGroup(db,tx,node,displayed,new(){created});LibraryFrames.Clear(db,tx);LibraryFrames.Build(db,tx,displayed);
     }
-    static bool ModelHasSample(Database db,Transaction tx,string id)=>LibraryFrames.Model(db,tx).Any(e=>SampleMetadata(e,tx)?.Id==id&&e is not MText&&e is not Polyline);
+    static bool ModelHasSample(Database db,Transaction tx,string id)=>LibraryFrames.Model(db,tx).Any(e=>SampleMetadata(e,tx)?.Id==id&&!IsPresentationHelper(e,tx));
     public static LibrarySyncItem? SampleMetadata(DBObject obj, Transaction tx) => Metadata(obj, tx, SampleKey);
     public static void MarkSample(Entity entity, Transaction tx, LibrarySyncItem item) => Tag(entity,tx,SampleKey,new LibrarySyncItem{Id=item.Id,Kind=item.Kind,Name=item.Name,Handle=entity.Handle.ToString()});
     public static bool Managed(Database db, Transaction tx, LibrarySyncItem item) => Metadata(Resolve(db, tx, item), tx, ResourceKey) != null;
@@ -477,7 +501,7 @@ public sealed partial class LibrarySyncNative
         var bt=(BlockTable)tx.GetObject(db.BlockTableId,OpenMode.ForRead);
         foreach(ObjectId id in (BlockTableRecord)tx.GetObject(bt[BlockTableRecord.ModelSpace],OpenMode.ForRead))
         {
-            if(tx.GetObject(id,OpenMode.ForRead) is not MText label||SampleMetadata(label,tx)?.Id!=item.Id)continue;
+            if(tx.GetObject(id,OpenMode.ForRead) is not MText label||!IsPresentationHelper(label,tx)||SampleMetadata(label,tx)?.Id!=item.Id)continue;
             var lines=label.Text.Replace("\r","").Split('\n');
             label.UpgradeOpen();label.Contents=string.Join("\\P",lines.Select(line=>Safe(line.StartsWith("Nhóm | ")?"Nhóm | "+group:line)));
         }
@@ -493,17 +517,17 @@ public sealed partial class LibrarySyncNative
         {
             var glyph=LibraryFrames.Model(db,tx).Where(e=>SampleMetadata(e,tx)?.Id==item.Id).ToArray();
             var sample=glyph.FirstOrDefault(e=>item.Kind=="blocks"&&e is BlockReference||item.Kind=="layers"&&e is Line||
-                item.Kind=="hatches"&&e is Hatch||item.Kind=="texts"&&e is DBText||item.Kind=="dims"&&e is Dimension);
+                item.Kind=="hatches"&&e is Hatch||item.Kind=="texts"&&(e is DBText||e is MText&&!IsPresentationHelper(e,tx))||item.Kind=="dims"&&e is Dimension);
             if(sample==null)
             {
                 report.MissingSampleIds.Add(item.Id);
                 // Remove only our orphaned annotation, never restore the missing sample or erase its definition.
-                foreach(var annotation in glyph.Where(e=>e is MText||e is Polyline)){annotation.UpgradeOpen();annotation.Erase();}
+                foreach(var annotation in glyph.Where(e=>IsPresentationHelper(e,tx))){annotation.UpgradeOpen();annotation.Erase();}
                 continue;
             }
             report.ExistingSamples++;
             LibraryFrames.AddCell(db,tx,item,sample);
-            foreach(var label in LibraryFrames.Model(db,tx).OfType<MText>().Where(e=>SampleMetadata(e,tx)?.Id==item.Id))
+            foreach(var label in LibraryFrames.Model(db,tx).OfType<MText>().Where(e=>IsPresentationHelper(e,tx)&&SampleMetadata(e,tx)?.Id==item.Id))
             {
                 var lines=label.Text.Replace("\r","").Split('\n').ToList();
                 if(lines.Count>0)lines[0]=item.Name;
@@ -542,7 +566,7 @@ public sealed partial class LibrarySyncNative
             var glyph=LibraryFrames.Model(db,tx).Where(e=>SampleMetadata(e,tx)?.Id==item.Id).ToArray();
             var sample=glyph.FirstOrDefault(e=>item.Kind=="blocks"&&e is BlockReference||
                 item.Kind=="layers"&&e is Line||item.Kind=="hatches"&&e is Hatch||
-                item.Kind=="texts"&&e is DBText||item.Kind=="dims"&&e is Dimension);
+                item.Kind=="texts"&&(e is DBText||e is MText&&!IsPresentationHelper(e,tx))||item.Kind=="dims"&&e is Dimension);
             if(sample==null){
                 foreach(var stale in glyph){stale.UpgradeOpen();stale.Erase();}
                 var resource=Resolve(db,tx,item);
@@ -568,10 +592,10 @@ public sealed partial class LibrarySyncNative
                 MarkSample(sample,tx,item);
                 LibraryFrames.AddCell(db,tx,item,sample);
                 added.Add(item);
-            }else if(!glyph.OfType<Polyline>().Any(e=>e.Closed&&e.NumberOfVertices==4)){
+            }else if(!glyph.OfType<Polyline>().Any(e=>e.Closed&&e.NumberOfVertices==4&&IsPresentationHelper(e,tx))){
                 LibraryFrames.AddCell(db,tx,item,sample);
             }
-            foreach(var label in LibraryFrames.Model(db,tx).OfType<MText>().Where(e=>SampleMetadata(e,tx)?.Id==item.Id)){
+            foreach(var label in LibraryFrames.Model(db,tx).OfType<MText>().Where(e=>IsPresentationHelper(e,tx)&&SampleMetadata(e,tx)?.Id==item.Id)){
                 label.UpgradeOpen();
                 var lines=label.Text.Replace("\r","").Split('\n').ToList();
                 if(lines.Count>0)lines[0]=item.Name;
@@ -602,7 +626,7 @@ public sealed partial class LibrarySyncNative
         if(request.Value<bool>("keepSamples"))foreach(ObjectId id in model)
         {
             if(tx.GetObject(id,OpenMode.ForRead) is not Entity entity)continue;var tag=SampleMetadata(entity,tx);if(tag==null)continue;
-            bool correct=tag.Kind=="blocks"&&entity is BlockReference||tag.Kind=="layers"&&entity is Line||tag.Kind=="hatches"&&entity is Hatch||tag.Kind=="texts"&&entity is DBText||tag.Kind=="dims"&&entity is Dimension;
+            bool correct=tag.Kind=="blocks"&&entity is BlockReference||tag.Kind=="layers"&&entity is Line||tag.Kind=="hatches"&&entity is Hatch||tag.Kind=="texts"&&(entity is DBText||entity is MText&&!IsPresentationHelper(entity,tx))||tag.Kind=="dims"&&entity is Dimension;
             if(correct&&items.Any(i=>i.Id==tag.Id)&&(!preserved.ContainsKey(tag.Id)||tag.Handle==entity.Handle.ToString()))preserved[tag.Id]=entity;
         }
         var frameWidths=LibraryFrames.Widths(db,tx);LibraryFrames.Clear(db,tx);

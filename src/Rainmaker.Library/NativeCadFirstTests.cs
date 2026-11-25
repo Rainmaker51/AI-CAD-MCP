@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -37,6 +37,8 @@ public sealed partial class NativeTests
                 foreach(var i in selected){var actual=after.Single(a=>a.Id==i.Id);Check(actual.Values.ToString()==before[i.Id],"Presentation overwrote native values: "+i.Kind);Check(LibraryFrames.Model(db,tx).OfType<MText>().Any(l=>LibrarySyncNative.SampleMetadata(l,tx)?.Id==i.Id),"Missing generated label: "+i.Kind);}
                 Check(Math.Abs(((Hatch)tx.GetObject(hatchId,OpenMode.ForRead)).Area-area)<1e-7,"Nested hatch boundary changed");Check(Math.Abs(((BlockReference)tx.GetObject(blockSample,OpenMode.ForRead)).Rotation-.3)<1e-7,"Block variant rotation changed");tx.Commit();
             }
+            VerifyFrameScope(db,selected,evidence);
+            VerifyGroupLifecycle(db,selected,evidence);
             using(var tx=db.TransactionManager.StartTransaction())
             {
                 var read=LibrarySyncNative.ReadDrawing(db,tx,selected);var layer=read.Single(i=>i.Kind=="layers"&&i.Name=="CAD_FIRST_LAYER");
@@ -64,4 +66,57 @@ public sealed partial class NativeTests
         }
         finally{HostApplicationServices.WorkingDatabase=previous;}
     }
+    static void VerifyFrameScope(Database db,List<LibrarySyncItem> hints,string evidence)
+    {
+        using(var tx=db.TransactionManager.StartTransaction())
+        {
+            LibraryFrames.Separate(db,tx,hints);
+            var framed=LibrarySyncNative.ReadFramed(db,tx,hints,out var presence);
+            JsonUtil.Atomic(Path.Combine(evidence,"frame-debug.json"),new{presence,frames=LibraryFrames.Model(db,tx).OfType<BlockReference>().Select(b=>new{node=LibraryFrames.Info(b,tx),position=b.Position.ToString(),scale=b.ScaleFactors.ToString(),matrix=b.BlockTransform.ToString(),tag=LibrarySyncNative.SampleMetadata(b,tx),bounds=b.GeometricExtents.ToString()}).ToArray()});
+            foreach(var item in hints)Check(presence[item.Id]!.Value<bool>("inScope"),"Typed frame rejected "+item.Kind);
+            Check(framed.Count(i=>i.Kind=="hatches")==1,"Nested block hatch leaked into Hatch catalog");
+            Check(framed.All(i=>hints.Any(h=>h.Id==i.Id)),"QA frame labels or helper definitions entered catalog");
+            var hatchSample=LibraryFrames.Model(db,tx).OfType<Hatch>().Single();hatchSample.UpgradeOpen();hatchSample.PatternScale=300;
+            framed=LibrarySyncNative.ReadFramed(db,tx,hints,out presence);var hatchItem=framed.Single(i=>i.Kind=="hatches");
+            Check(hatchItem.Values.Value<double>("scale")==300,"Nested hatch overrode the sample inside Hatch frame");
+            LibrarySyncNative.PresentFromCad(db,tx,new(){hatchItem},new(),hints);
+            Check(hatchSample.PatternScale==300,"Presentation restored stale nested hatch parameters");
+            var sample=(BlockReference)tx.GetObject(LibraryFrames.Model(db,tx).OfType<BlockReference>().Single(b=>LibrarySyncNative.SampleMetadata(b,tx)?.Id==hints.Single(i=>i.Kind=="blocks").Id).ObjectId,OpenMode.ForWrite);
+            var original=sample.Position;string blockId=hints.Single(i=>i.Kind=="blocks").Id;
+            sample.Position=original+new Vector3d(10000000,0,0);
+            LibrarySyncNative.ReadFramed(db,tx,hints,out presence);
+            Check(presence[blockId]!.Value<bool>("inScope")==false,"Outside sample accepted");
+            sample.Position=original;framed=LibrarySyncNative.ReadFramed(db,tx,hints,out presence);
+            Check(presence[blockId]!.Value<bool>("inScope")&&framed.Any(i=>i.Id==blockId),"Return to frame changed ID");
+            var frame=LibraryFrames.Model(db,tx).OfType<BlockReference>().Single(b=>LibraryFrames.Info(b,tx)?.Kind=="blocks"&&LibraryFrames.Info(b,tx)?.Path=="");
+            var offset=new Vector3d(3500,6000,0);LibraryFrames.MoveGroup(db,tx,LibraryFrames.Info(frame,tx)!,offset,hints);
+            LibrarySyncNative.ReadFramed(db,tx,hints,out presence);Check(presence[blockId]!.Value<bool>("inScope"),"Moved frame lost sample");
+            // A line crossing the root border cannot import a new layer.
+            var layers=(LayerTable)tx.GetObject(db.LayerTableId,OpenMode.ForWrite);var layer=new LayerTableRecord{Name="OUTSIDE_CROSSING_TEST"};layers.Add(layer);tx.AddNewlyCreatedDBObject(layer,true);
+            var root=LibraryFrames.Model(db,tx).OfType<BlockReference>().Single(b=>LibraryFrames.Info(b,tx)?.Kind=="layers"&&LibraryFrames.Info(b,tx)?.Path=="");
+            var bt=(BlockTable)tx.GetObject(db.BlockTableId,OpenMode.ForRead);var model=(BlockTableRecord)tx.GetObject(bt[BlockTableRecord.ModelSpace],OpenMode.ForWrite);
+            var line=new Line(new Point3d(-.1,-.5,0).TransformBy(root.BlockTransform),new Point3d(.1,-.5,0).TransformBy(root.BlockTransform)){LayerId=layer.ObjectId};model.AppendEntity(line);tx.AddNewlyCreatedDBObject(line,true);
+            framed=LibrarySyncNative.ReadFramed(db,tx,hints,out presence);
+            Check(framed.All(i=>i.Name!=layer.Name)&&presence["scanScope"]!["issues"]!.Any(),"Crossing sample was imported without warning");
+            line.StartPoint=new Point3d(.15,-.5,0).TransformBy(root.BlockTransform);line.EndPoint=new Point3d(.2,-.5,0).TransformBy(root.BlockTransform);
+            framed=LibrarySyncNative.ReadFramed(db,tx,hints,out presence);var newLayer=framed.Single(i=>i.Name==layer.Name);
+            LibrarySyncNative.PresentFromCad(db,tx,new(){newLayer},new(){newLayer.Id},hints);
+            Check(LibraryFrames.Model(db,tx).OfType<Line>().Count(l=>l.LayerId==layer.ObjectId)==1&&LibrarySyncNative.SampleMetadata(line,tx)?.Id==newLayer.Id,"Publication duplicated an existing native sample");
+            var styles=(TextStyleTable)tx.GetObject(db.TextStyleTableId,OpenMode.ForWrite);var style=new TextStyleTableRecord{Name="NATIVE_MTEXT_SAMPLE",FileName="tahoma.ttf"};styles.Add(style);tx.AddNewlyCreatedDBObject(style,true);
+            var textFrame=LibraryFrames.Model(db,tx).OfType<BlockReference>().Single(b=>LibraryFrames.Info(b,tx)?.Kind=="texts"&&LibraryFrames.Info(b,tx)?.Path=="");
+            var text=new MText{Contents="User text sample",TextStyleId=style.ObjectId,TextHeight=100,Width=2000,Location=new Point3d(.25,-.5,0).TransformBy(textFrame.BlockTransform)};model.AppendEntity(text);tx.AddNewlyCreatedDBObject(text,true);
+            framed=LibrarySyncNative.ReadFramed(db,tx,hints,out presence);var newText=framed.Single(i=>i.Name==style.Name);
+            LibrarySyncNative.PresentFromCad(db,tx,new(){newText},new(){newText.Id},hints);
+            Check(text.Contents=="User text sample"&&!LibrarySyncNative.IsPresentationHelper(text,tx),"Native MText was overwritten as a QA description");
+            var readHints=hints.Concat(new[]{newLayer,newText}).ToList();framed=LibrarySyncNative.ReadFramed(db,tx,readHints,out presence);
+            Check(presence[newText.Id]!.Value<bool>("inScope"),"Adopted MText disappeared from the next scan");
+            tx.Abort();
+        }
+        using(var empty=new Database(true,true))using(var tx=empty.TransactionManager.StartTransaction())
+        {bool blocked=false;try{LibrarySyncNative.ReadFramed(empty,tx,new(),out _);}catch(CadException){blocked=true;}Check(blocked,"Missing frames fell back to whole drawing");}
+        var old=hints[0];var review=new QaCadReview(new JObject{["differences"]=new JArray(new JObject{["Id"]=old.Id,["Status"]="CAD_OUT_OF_SCOPE",["App"]=JObject.FromObject(old),["Cad"]=JObject.FromObject(old)})},new());
+        try{Check(!review.Rows[0].Selected,"Outside item selected by default");review.Rows[0].Selected=true;bool blocked=false;try{review.BuildPlan();}catch(InvalidOperationException){blocked=true;}Check(blocked,"Outside item could be published/removed");}finally{review.Close();}
+        JsonUtil.Atomic(Path.Combine(evidence,"frame-scope.json"),new{passed=true,fiveKinds=true,nestedHatchExcluded=true,helpersExcluded=true,outsidePreserved=true,stableIdOnReturn=true,movedFrames=true,crossingDiagnosed=true,missingFramesBlocked=true,outsideReviewGuard=true});
+    }
+
 }

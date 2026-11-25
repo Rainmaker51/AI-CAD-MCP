@@ -49,7 +49,7 @@ public sealed partial class CadToolCatalog {
  static void RequireAddIn(CadToolEntry item){if(item.Kind!="dotnet")throw new CadException("TOOL_TYPE","CAD Tool Manager quản lý add-in .NET Framework 4.8.");}
  static string PackageHash(IEnumerable<string> files)=>Json.Hash(files.OrderBy(Path.GetFileName,StringComparer.OrdinalIgnoreCase).Select(p=>new{name=Path.GetFileName(p),hash=Json.FileHash(p)}).ToList());
  public CadToolEntry Import(string source,int revision,string? replaceId=null)=>ImportInstalled(source,revision,replaceId);
- static bool Reserved(string name)=>new[]{"acmgd","acdbmgd","accoremgd","CAD.Bridge.AutoCAD","CAD.Contracts","CAD.Geometry"}.Contains(name,StringComparer.OrdinalIgnoreCase)||name.StartsWith("System.",StringComparison.OrdinalIgnoreCase);
+ static bool Reserved(string name)=>new[]{"acmgd","acdbmgd","accoremgd","CAD.Bridge.AutoCAD","CAD.Contracts","CAD.Geometry","Rainmaker.Library.Reader"}.Contains(name,StringComparer.OrdinalIgnoreCase)||name.StartsWith("System.",StringComparison.OrdinalIgnoreCase);
  public void Update(string id,int revision,string name,string group,string notes,bool enabled,IEnumerable<string> commands,string action="save",string? tabId=null)=>Change(revision,index=>{
   var item=Editable(index,id);
   RequireAddIn(item);

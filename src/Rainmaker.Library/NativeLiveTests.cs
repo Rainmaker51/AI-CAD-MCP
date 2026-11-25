@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -22,7 +22,7 @@ public sealed partial class NativeTests
         try
         {
             using var source=new Database(true,true){Insunits=UnitsValue.Millimeters};HostApplicationServices.WorkingDatabase=source;
-            ObjectId blockId,usedId,hatchId;
+            ObjectId blockId,usedId,hatchId;List<LibrarySyncItem> initialHints;
             using(var tx=source.TransactionManager.StartTransaction())
             {
                 var blocks=(BlockTable)tx.GetObject(source.BlockTableId,OpenMode.ForWrite);var block=new BlockTableRecord{Name="QA_INSERT_TEST",Units=UnitsValue.Millimeters};blocks.Add(block);tx.AddNewlyCreatedDBObject(block,true);blockId=block.ObjectId;
@@ -32,11 +32,15 @@ public sealed partial class NativeTests
                 var layer=(LayerTable)tx.GetObject(source.LayerTableId,OpenMode.ForWrite);var unusedLayer=new LayerTableRecord{Name="QA_UNUSED_LAYER"};layer.Add(unusedLayer);tx.AddNewlyCreatedDBObject(unusedLayer,true);
                 var model=(BlockTableRecord)tx.GetObject(blocks[BlockTableRecord.ModelSpace],OpenMode.ForWrite);var reference=new BlockReference(Point3d.Origin,blockId);model.AppendEntity(reference);tx.AddNewlyCreatedDBObject(reference,true);usedId=reference.ObjectId;
                 var hatch=new Hatch{ColorIndex=8};model.AppendEntity(hatch);tx.AddNewlyCreatedDBObject(hatch,true);hatch.SetHatchPattern(HatchPatternType.PreDefined,"ANSI31");hatch.PatternScale=100;
-                var loop=new HatchLoop(HatchLoopTypes.External|HatchLoopTypes.Polyline);foreach(var point in new[]{new Point2d(0,0),new Point2d(500,0),new Point2d(500,500),new Point2d(0,500),new Point2d(0,0)})loop.Polyline.Add(new BulgeVertex(point,0));hatch.AppendLoop(loop);hatch.EvaluateHatch(true);hatchId=hatch.ObjectId;tx.Commit();
+                var loop=new HatchLoop(HatchLoopTypes.External|HatchLoopTypes.Polyline);foreach(var point in new[]{new Point2d(0,0),new Point2d(500,0),new Point2d(500,500),new Point2d(0,500),new Point2d(0,0)})loop.Polyline.Add(new BulgeVertex(point,0));hatch.AppendLoop(loop);hatch.EvaluateHatch(true);hatchId=hatch.ObjectId;
+                initialHints=LibrarySyncNative.ReadDrawing(source,tx);
+                var selected=initialHints.Where(i=>i.Name=="QA_INSERT_TEST"||i.Kind=="hatches").ToList();
+                foreach(var item in selected){Entity sample=item.Kind=="blocks"?reference:hatch;LibrarySyncNative.AssignGroup(source,tx,item,"",sample);LibraryFrames.AddCell(source,tx,item,sample);}
+                LibraryFrames.Build(source,tx,selected);LibraryFrames.Separate(source,tx,selected);tx.Commit();
             }
             string file=Path.Combine(root,"live-source.dwg");source.SaveAs(file,DwgVersion.AC1032);string originalHash=JsonUtil.FileHash(file);
             var config=new InstallConfig{DataRoot=Path.Combine(root,"live-data")};
-            var saved=QaCadSnapshot.CaptureSaved(config,file,new());
+            var saved=QaCadSnapshot.CaptureSaved(config,file,initialHints);
             var hints=saved["items"]!.ToObject<List<LibrarySyncItem>>()!;
             var opened=QaCadSnapshot.Capture(config,file,hints,source);
             JsonUtil.Atomic(Path.Combine(root,"cross-runtime.json"),opened);

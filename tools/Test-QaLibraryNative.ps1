@@ -1,4 +1,4 @@
-param([string]$Stage='',[string]$ManagerDirectory='',[string]$LibraryPackage='')
+param([string]$Stage='',[string]$ManagerDirectory='',[string]$LibraryPackage='',[string]$ReaderPackage='')
 $ErrorActionPreference='Stop'
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if(-not $Stage){$Stage=[IO.File]::ReadAllText((Join-Path $repo '.tools/qa-library-stage.txt')).Trim()}
@@ -42,6 +42,12 @@ Copy-Item -LiteralPath (Join-Path $repo 'content/launch/blank-mm.dwg') -Destinat
 $script=@('_NETLOAD',('"'+(Join-Path $autoCAD 'CAD.Bridge.AutoCAD.dll')+'"'),'_NETLOAD',('"'+(Join-Path $Stage 'harness/QaLibrary.NativeHarness.dll')+'"'),'QANATIVEVERIFY','_QUIT','_Y')-join "`r`n"
 [IO.File]::WriteAllText((Join-Path $test 'test.scr'),$script+"`r`n")
 $env:AICAD_TOOL_TEST_ROOT=$test
+if($ReaderPackage){
+ [Reflection.Assembly]::LoadFrom((Join-Path $autoCAD 'Newtonsoft.Json.dll'))|Out-Null
+ [Reflection.Assembly]::LoadFrom((Join-Path $autoCAD 'CAD.Contracts.dll'))|Out-Null
+ $components=[AICad.Contracts.CadSharedComponentStore]::new((Join-Path $test 'data'))
+ $components.Install((Join-Path $ReaderPackage 'Rainmaker.Library.Reader.dll'),0)|Out-Null
+}
 $console=Join-Path $env:ProgramFiles 'Autodesk/AutoCAD 2021/accoreconsole.exe'
 & $console /i $inputDrawing /s (Join-Path $test 'test.scr') /isolate QaLibrary140 (Join-Path $test 'profile') *> (Join-Path $test 'core.log')
 $result=Join-Path $test 'ribbon-manager-results.json'

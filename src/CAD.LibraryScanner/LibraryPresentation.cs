@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.Linq;
 using AICad.Contracts;
@@ -15,7 +15,7 @@ public sealed partial class LibrarySyncNative
         foreach(var entity in LibraryFrames.Model(db,tx).Where(e=>SampleMetadata(e,tx)?.Id==item.Id).ToArray())
         {
             tx.GetObject(entity.ObjectId,OpenMode.ForWrite);
-            if(entity is MText label)
+            if(entity is MText label&&IsPresentationHelper(entity,tx))
             {
                 var lines=label.Text.Replace("\r","").Split('\n').ToList();
                 if(lines.Count==0)lines.Add(item.Name);else lines[0]=item.Name;

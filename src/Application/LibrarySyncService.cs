@@ -174,6 +174,11 @@ public sealed partial class LibrarySyncService(InstallConfig config):LibraryRepo
             foreach (var change in differences)
             {
                 string choice = choices.TryGetValue(change.Id, out string? value) ? value : "skip";
+                if(review["presence"]?[change.Id]?.Value<bool?>("inScope")==false)
+                {
+                    if(choice!="skip")throw new CadException("LIBRARY_OUT_OF_SCOPE","Đưa mẫu vào đúng khung thư viện rồi quét lại. Mục ngoài phạm vi được giữ nguyên trong kho.");
+                    continue;
+                }
                 if (change.Status == "MATCH") accepted.Add(change.Id);
                 if (choice == "remove")
                 {

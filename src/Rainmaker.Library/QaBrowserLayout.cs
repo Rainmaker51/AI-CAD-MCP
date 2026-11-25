@@ -53,8 +53,8 @@ internal sealed partial class QaBrowserWindow
             bool managed=Commands.IsLibrary(doc.Database,tx);
             foreach(var button in layoutButtons)button.IsEnabled=(string)button.Tag=="QALIBINIT"||managed;
             if(!managed)layoutStatus.Text+="\nDWG nguồn chưa khởi tạo bố trí. Dùng Khởi tạo bố trí DWG trên chính file này.";
-            else if(group!="*"&&!LibraryFrames.Nodes(doc.Database,tx).Any(n=>n.Kind==kind&&n.Path==SelectedPath))
-                layoutStatus.Text+="\nNhóm chưa có khung trong CAD. Dùng Áp dụng nhóm / xếp gọn CAD trước.";
+            else if(group!="*"&&!LibraryFrames.Model(doc.Database,tx).OfType<Autodesk.AutoCAD.DatabaseServices.BlockReference>().Any(b=>LibraryFrames.Info(b,tx)?.Kind==kind&&LibraryFrames.Info(b,tx)?.Path==SelectedPath))
+            {foreach(var button in layoutButtons)if((string)button.Tag!="QALIBINIT")button.IsEnabled=false;layoutStatus.Text+="\nKhung nhóm không còn trên CAD. Dùng Xóa nhóm hoặc Quét thay đổi để đối chiếu; QA không tự dựng lại khung đã xóa.";}
             else layoutStatus.Text+="\nDùng chung nhóm đang chọn. Bảng tạm ẩn khi chọn trên CAD; Esc hủy rồi trở lại bảng này.";
         }
         catch(Exception error){layoutStatus.Text+="\n"+error.Message;}
@@ -69,7 +69,7 @@ internal sealed partial class QaBrowserWindow
         {
             using var locked=doc.LockDocument();using var tx=doc.Database.TransactionManager.StartOpenCloseTransaction();
             if(!Commands.IsLibrary(doc.Database,tx))throw new CadException("LIBRARY_DOCUMENT","Khởi tạo bố trí trên DWG nguồn trước.");
-            if(group!="*")selected=LibraryFrames.Nodes(doc.Database,tx).SingleOrDefault(n=>n.Kind==kind&&n.Path==SelectedPath)?.Id??throw new CadException("LIBRARY_GROUP","Nhóm chưa có khung CAD. Dùng Áp dụng nhóm / xếp gọn CAD trước.");
+            if(group!="*")selected=LibraryFrames.Model(doc.Database,tx).OfType<Autodesk.AutoCAD.DatabaseServices.BlockReference>().Select(b=>LibraryFrames.Info(b,tx)).SingleOrDefault(n=>n?.Kind==kind&&n.Path==SelectedPath)?.Id??throw new CadException("LIBRARY_GROUP","Khung nhóm không còn trên CAD. Dùng Xóa nhóm hoặc Quét thay đổi để đối chiếu.");
         }
         cadMessageReceived=false;status.Text="Đang thao tác trên CAD. Nhấn Esc để hủy và quay lại Thư viện QA.";
         var plugin=LibraryPlugin.Current??throw new InvalidOperationException("Thư viện QA chưa được Manager nạp.");

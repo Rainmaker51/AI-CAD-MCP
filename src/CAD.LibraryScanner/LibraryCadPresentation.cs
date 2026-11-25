@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using AICad.Contracts;
@@ -19,14 +19,14 @@ public sealed partial class LibrarySyncNative
         foreach(var hatch in MutationEntities(db,tx).OfType<Hatch>().Where(h=>Metadata(h,tx,ResourceKey)?.Id==source.Id||h.Handle.ToString()==source.Handle).ToArray())
         {Tag(hatch,tx,ResourceKey,target);if(SampleMetadata(hatch,tx)!=null)MarkSample(hatch,tx,target);}
         foreach(var e in LibraryFrames.Model(db,tx).Where(e=>SampleMetadata(e,tx)?.Id==source.Id).ToArray())
-        {if(e is MText||e is Polyline)tx.GetObject(e.ObjectId,OpenMode.ForWrite).Erase();else MarkSample(e,tx,target);}
+        {if(IsPresentationHelper(e,tx))tx.GetObject(e.ObjectId,OpenMode.ForWrite).Erase();else MarkSample(e,tx,target);}
     }
     public static void PresentFromCad(Database db,Transaction tx,List<LibrarySyncItem> selected,HashSet<string> newIds,List<LibrarySyncItem> hints)
     {
         var additions=new List<LibrarySyncItem>();
         foreach(var requested in selected)
         {
-            var actual=Read(db,tx,hints).SingleOrDefault(i=>i.Id==requested.Id);
+            var actual=(LibraryFrames.Initialized(db,tx)?ReadFramed(db,tx,hints,out _):Read(db,tx,hints)).SingleOrDefault(i=>i.Id==requested.Id);
             if(actual==null)continue;
             actual.Group=requested.Group;actual.GroupEditedInCad=true;actual.Purpose=requested.Purpose;actual.Notes=requested.Notes;
             if(requested.Values["qaDisplayName"]!=null)actual.Values["qaDisplayName"]=requested.Values["qaDisplayName"]!.DeepClone();
@@ -36,7 +36,9 @@ public sealed partial class LibrarySyncNative
             if(!hasSample&&newIds.Contains(actual.Id))
             {
                 var model=LibraryFrames.Model(db,tx).ToArray();Entity? sample=null;var resource=Resolve(db,tx,actual);
-                if(resource is BlockTableRecord block)
+                var framedSample=LibraryFrames.Initialized(db,tx)?new LibraryScanScope(db,tx).Sample(actual.Kind,actual.Handle):ObjectId.Null;
+                if(!framedSample.IsNull)sample=(Entity)tx.GetObject(framedSample,OpenMode.ForRead);
+                else if(resource is BlockTableRecord block)
                 {
                     sample=model.OfType<BlockReference>().FirstOrDefault(b=>(b.IsDynamicBlock?b.DynamicBlockTableRecord:b.BlockTableRecord)==block.ObjectId);
                     if(sample==null)
@@ -60,7 +62,7 @@ public sealed partial class LibrarySyncNative
                 {
                     if(sample.ObjectId.IsNull){var bt=(BlockTable)tx.GetObject(db.BlockTableId,OpenMode.ForRead);var ms=(BlockTableRecord)tx.GetObject(bt[BlockTableRecord.ModelSpace],OpenMode.ForWrite);ms.AppendEntity(sample);tx.AddNewlyCreatedDBObject(sample,true);}
                     if(sample is Dimension dimSample)dimSample.RecomputeDimensionBlock(true);
-                    MarkSample(sample,tx,actual);LibraryFrames.AddCell(db,tx,actual,sample);hasSample=true;additions.Add(actual);
+                    MarkSample(sample,tx,actual);Tag(sample,tx,NativeSampleKey,actual);LibraryFrames.AddCell(db,tx,actual,sample);hasSample=true;additions.Add(actual);
                 }
             }
             if(hasSample)
@@ -102,7 +104,7 @@ public sealed partial class LibrarySyncNative
     public static void RemoveOrphanPresentation(Database db,Transaction tx,IEnumerable<string> ids)
     {
         var selected=new HashSet<string>(ids);
-        foreach(var e in LibraryFrames.Model(db,tx).Where(e=>(e is MText||e is Polyline)&&SampleMetadata(e,tx) is LibrarySyncItem tag&&selected.Contains(tag.Id)).ToArray())
+        foreach(var e in LibraryFrames.Model(db,tx).Where(e=>IsPresentationHelper(e,tx)&&SampleMetadata(e,tx) is LibrarySyncItem tag&&selected.Contains(tag.Id)).ToArray())
             tx.GetObject(e.ObjectId,OpenMode.ForWrite).Erase();
     }
 }

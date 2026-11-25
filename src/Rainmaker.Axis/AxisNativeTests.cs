@@ -20,6 +20,10 @@ internal static class AxisNativeTests
  {
   JsonUtil.Atomic(Path.Combine(root,"axis-contracts-runtime.json"),new{contracts=typeof(LibrarySyncItem).Assembly.Location,valuesGetter=typeof(LibrarySyncItem).GetProperty("Values")?.PropertyType.FullName,axis=typeof(RainmakerAxis).Assembly.GetName().Version?.ToString()});
   void Check(bool v,string message){if(!v)throw new Exception(message);}
+  var readerAssembly=typeof(Rainmaker.Library.Reader.LibraryReader).Assembly;
+  var components=new CadSharedComponentStore(Plugin.Current!.Config.DataRoot);var selectedReader=components.Read()??throw new Exception("Reader must be installed in Shared components before the Axis suite");
+  Check(AppDomain.CurrentDomain.GetAssemblies().Count(a=>a.GetName().Name=="Rainmaker.Library.Reader")==1&&readerAssembly.Location==components.Demand(selectedReader),"Reader must be the single separately installed component");
+  JsonUtil.Atomic(Path.Combine(root,"reader-manager-runtime.json"),new{passed=true,protocol=1,reader=readerAssembly.Location,readerVersion=readerAssembly.GetName().Version!.ToString(),manager=typeof(Plugin).Assembly.GetName().Version!.ToString(),singleSharedAssembly=true});
   var library=new AxisLibrary(Plugin.Current!.Config.ContentRoot);var settings=library.Load();
   Check(settings.BayDimId==""&&settings.TotalDimId=="","Must not guess initial Dim styles");
   var dims=library.Options.Where(o=>o.Kind=="dims"&&o.Name!="Standard").OrderBy(o=>o.Code).Take(2).ToArray();Check(dims.Length==2,"Need two distinct test Dim styles");

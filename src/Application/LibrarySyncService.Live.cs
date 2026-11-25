@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -35,8 +35,10 @@ public partial class LibraryRepository
             if(capture["presence"]?[change.Id]?.Value<bool?>("samplePresent")==false){change.Status="CAD_SAMPLE_MISSING";change.Suggested="remove";}
         foreach(var change in differences.Where(d=>d.Cad?.Kind=="blocks"&&d.App==null))
             if(capture["presence"]?[change.Id]?.Value<bool?>("samplePresent")==false){change.Status="CAD_DEFINITION_ONLY";change.Suggested="keep";}
+        foreach(var change in differences)
+            if(capture["presence"]?[change.Id]?.Value<bool?>("inScope")==false){change.Status="CAD_OUT_OF_SCOPE";change.Suggested="keep";}
         Json.Atomic(Path.Combine(Job(id),"live-review.json"),new{appHash=AppHash(),signature=capture.Value<string>("signature"),differences});
-        return new JObject{["id"]=id,["source"]=Source,["signature"]=capture["signature"]!.DeepClone(),["appHash"]=AppHash(),["revision"]=state.Revision,["differences"]=JArray.FromObject(differences)};
+        return new JObject{["id"]=id,["source"]=Source,["signature"]=capture["signature"]!.DeepClone(),["appHash"]=AppHash(),["revision"]=state.Revision,["scope"]=capture["presence"]?["scanScope"]?.DeepClone(),["differences"]=JArray.FromObject(differences)};
     }
     public object PrepareLiveApproval(JObject request)
     {

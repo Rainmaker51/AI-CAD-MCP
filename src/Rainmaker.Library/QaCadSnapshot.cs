@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -91,14 +91,14 @@ internal static class QaCadSnapshot
                     }
                     return c;
                 }).ToList();
-                using(var tx=clone.TransactionManager.StartTransaction()){items=LibrarySyncNative.ReadDrawing(clone,tx,cloneHints);presence=LibraryPresence.Read(clone,tx,items);tx.Abort();}
+                using(var tx=clone.TransactionManager.StartTransaction()){items=LibrarySyncNative.ReadFramed(clone,tx,cloneHints,out presence);tx.Abort();}
                 clone.SaveAs(file,DwgVersion.AC1032);
             }
             else
             {
                 CopyShared(source,file);
                 using var db=new Database(false,true);db.ReadDwgFile(file,FileOpenMode.OpenForReadAndAllShare,true,"");db.CloseInput(true);HostApplicationServices.WorkingDatabase=db;
-                using var tx=db.TransactionManager.StartTransaction();items=LibrarySyncNative.ReadDrawing(db,tx,hints);presence=LibraryPresence.Read(db,tx,items);tx.Abort();
+                using var tx=db.TransactionManager.StartTransaction();items=LibrarySyncNative.ReadFramed(db,tx,hints,out presence);tx.Abort();
             }
         }
         finally{HostApplicationServices.WorkingDatabase=previous;}
@@ -123,7 +123,7 @@ internal static class QaCadSnapshot
         try
         {
             using var db=new Database(false,true);db.ReadDwgFile(file,FileOpenMode.OpenForReadAndAllShare,true,"");db.CloseInput(true);HostApplicationServices.WorkingDatabase=db;
-            using var tx=db.TransactionManager.StartTransaction();var items=LibrarySyncNative.ReadDrawing(db,tx,hints);var presence=LibraryPresence.Read(db,tx,items);tx.Abort();
+            using var tx=db.TransactionManager.StartTransaction();var items=LibrarySyncNative.ReadFramed(db,tx,hints,out var presence);tx.Abort();
             var result=new JObject{["id"]=id,["source"]=Path.GetFullPath(source),["readMode"]="SAVED_FILE",["items"]=JArray.FromObject(items),["presence"]=presence,["signatureFormat"]=2,["signature"]=Signature(items,presence),["snapshotHash"]=JsonUtil.FileHash(file)};
             JsonUtil.Atomic(Path.Combine(folder,"snapshot.json"),result);return result;
         }

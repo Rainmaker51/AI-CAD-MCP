@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -55,7 +55,7 @@ internal sealed partial class QaBrowserWindow : Window
     {
         persistUi=!test;
         if(!test)kind=Commands.Kind;
-        Title = "Rainmaker · Thư viện QA 1.9.0"; Width = 1440; Height = 880; MinWidth = 960; MinHeight = 620;
+        Title = "Rainmaker · Thư viện QA 1.11.1"; Width = 1440; Height = 880; MinWidth = 960; MinHeight = 620;
         WindowStartupLocation = WindowStartupLocation.CenterScreen; FontFamily = new FontFamily("Segoe UI"); FontSize = 13;
         Resources = Theme.Load(); SetResourceReference(BackgroundProperty, "ToolBackground"); SetResourceReference(ForegroundProperty, "ToolText");
         tree.SetResourceReference(BackgroundProperty,"ToolSurface");tree.SetResourceReference(ForegroundProperty,"ToolText");tree.SetResourceReference(BorderBrushProperty,"ToolBorder");
@@ -229,7 +229,7 @@ internal sealed partial class QaBrowserWindow : Window
             var m = row["management"]!; bool deleted = m["DeletedUtc"]?.Type != JTokenType.Null && m["DeletedUtc"] != null;
             if (filter.SelectedIndex == 3 ? !deleted : deleted) continue;
             string live=row.Value<string>("liveStatus")??"PRESENT";
-            if(filter.SelectedIndex!=3&&filter.SelectedIndex!=2&&(filter.SelectedIndex==4?live!="DEFINITION_ONLY":filter.SelectedIndex==5?live!="MISSING":live is "DEFINITION_ONLY" or "MISSING"))continue;
+            if(filter.SelectedIndex!=3&&filter.SelectedIndex!=2&&(filter.SelectedIndex==6?live!="OUT_OF_SCOPE":filter.SelectedIndex==4?live!="DEFINITION_ONLY":filter.SelectedIndex==5?live!="MISSING":live is "DEFINITION_ONLY" or "MISSING" or "OUT_OF_SCOPE"))continue;
             if(filter.SelectedIndex==1&&live is not ("NEW" or "CHANGED"))continue;
             if(!MatchesPattern(row))continue;
             if (query != "" && row.ToString().IndexOf(query, StringComparison.CurrentCultureIgnoreCase) < 0) continue;
@@ -250,7 +250,7 @@ internal sealed partial class QaBrowserWindow : Window
         SetHatchView(visible);
     }
     internal static bool UseReviewed(JObject row)=>row.Value<bool?>("useReviewed")??((row["profile"]?["Usage"] as JObject)?.Value<bool?>("Reviewed")??row["management"]?.Value<bool?>("Reviewed")??false);
-    static string LiveLabel(JObject row)=>row.Value<string>("liveStatus") switch{"NEW"=>"Mới trong CAD · chưa lưu danh mục","CHANGED"=>"CAD đã thay đổi","MISSING"=>"Không còn trong CAD","DEFINITION_ONLY"=>"Chỉ có định nghĩa · không có mẫu",_=>"Có trong CAD · đã có danh mục"};
+    static string LiveLabel(JObject row)=>row.Value<string>("liveStatus") switch{"OUT_OF_SCOPE"=>"Ngoài khung quét · danh mục được giữ nguyên","NEW"=>"Mới trong CAD · chưa lưu danh mục","CHANGED"=>"CAD đã thay đổi","MISSING"=>"Không còn trong CAD","DEFINITION_ONLY"=>"Chỉ có định nghĩa · không có mẫu",_=>"Có trong CAD · đã có danh mục"};
     async Task LoadImage(Image target, string path, int epoch)
     {
         try
@@ -278,7 +278,7 @@ internal sealed partial class QaBrowserWindow : Window
         if(state.Value<bool?>("live")==true)Label(LiveLabel(row));
         Label("Công dụng: " + m.Value<string>("Purpose")); Label("Ghi chú: " + m.Value<string>("Notes"));
         detail.Children.Add(Button("Tên / công dụng / ghi chú", EditMetadata));
-        if(kind=="blocks"&&row.Value<string>("liveStatus") is not ("MISSING" or "DEFINITION_ONLY"))detail.Children.Add(Button("Chèn block vào bản vẽ hiện tại",InsertSelected));
+        if(kind=="blocks"&&row.Value<string>("liveStatus") is not ("MISSING" or "DEFINITION_ONLY" or "OUT_OF_SCOPE"))detail.Children.Add(Button("Chèn block vào bản vẽ hiện tại",InsertSelected));
         detail.Children.Add(new TextBlock{Text="Thêm/sửa thông số trực tiếp trên CAD. Ctrl+S rồi Quét thay đổi / đối chiếu.",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,8,0,8)});
         Label("File nguồn: " + Path.GetFileName(Source)); Label("Đường dẫn: " + Source);
         var original=(JObject)row["profile"]!.DeepClone();original.Remove("Usage");
@@ -348,8 +348,18 @@ internal sealed partial class QaBrowserWindow : Window
     {
         DemandLive();
         if (group is "*" or "") throw new InvalidOperationException("Chọn nhóm cần xóa.");
-        if (MessageBox.Show(this, "Xóa nhóm? Nhóm con chuyển lên nhóm cha, hồ sơ bên trong chuyển về chưa phân nhóm.", "Xóa nhóm", MessageBoxButton.OKCancel) != MessageBoxResult.OK) return;
-        await SyncGroup(new() { ["kind"] = kind, ["id"] = group, ["action"] = "remove" }); group = "*"; await Load();
+        var groups=state["groups"]!.ToObject<List<LibraryGroup>>()!;string path=TreePath(groups,group);
+        var targets=new[]{new QaCadReview.Pick{Key="",Text="Chưa phân nhóm / khung gốc"}}.Concat(groups.Where(g=>g.Id!=group&&!LibraryFrames.Under(TreePath(groups,g.Id),path)).Select(g=>new QaCadReview.Pick{Key=g.Id,Text=TreePath(groups,g.Id)})).ToArray();
+        int profiles=Rows.Count(r=>r["management"]?.Value<string>("GroupId")==group);
+        int samples=(capture!["items"] as JArray??new()).OfType<JObject>().Count(i=>i.Value<string>("Kind")==kind&&i.Value<string>("Group")==path);
+        var dialog=new Window{Title="Xóa nhóm · "+path,Width=620,Height=410,Owner=this,WindowStartupLocation=WindowStartupLocation.CenterOwner,Resources=Theme.Load()};dialog.SetResourceReference(BackgroundProperty,"ToolBackground");dialog.SetResourceReference(ForegroundProperty,"ToolText");
+        var panel=new StackPanel{Margin=new Thickness(20)};dialog.Content=panel;
+        panel.Children.Add(new TextBlock{Text=$"{profiles} hồ sơ trực tiếp · {samples} tài nguyên CAD nhận diện · {groups.Count(g=>g.ParentId==group)} nhóm con trực tiếp.\nXóa nhóm và khung tương ứng; giữ nguyên tài nguyên, chuyển mẫu cùng chú thích sang nhóm đích. Khung đã xóa trên CAD cũng có thể xử lý tại đây.",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,0,0,14)});
+        panel.Children.Add(new TextBlock{Text="Nhóm nhận mẫu"});var destination=new ComboBox{ItemsSource=targets,SelectedIndex=0,Margin=new Thickness(0,5,0,12)};panel.Children.Add(destination);
+        panel.Children.Add(new TextBlock{Text="Xử lý nhóm con"});var children=new ComboBox{ItemsSource=new[]{"Đưa nhóm con lên cấp cha","Chuyển các nhóm con sang nhóm đích"},SelectedIndex=0,Margin=new Thickness(0,5,0,14)};panel.Children.Add(children);
+        var buttons=new WrapPanel();panel.Children.Add(buttons);var confirm=new Button{Content="Xóa nhóm và chuyển mẫu",Padding=new Thickness(10),Margin=new Thickness(0,0,8,0)};buttons.Children.Add(confirm);confirm.Click+=(_,_)=>dialog.DialogResult=true;buttons.Children.Add(new Button{Content="Hủy",IsCancel=true,Padding=new Thickness(10)});
+        if(AcApp.ShowModalWindow(dialog)!=true)return;
+        await SyncGroup(new() { ["kind"] = kind, ["id"] = group, ["action"] = "remove",["targetId"]=((QaCadReview.Pick)destination.SelectedItem).Key,["childMode"]=children.SelectedIndex==1?"branch":"lift" }); group = "*"; await Load();
     }
     async Task EditCad(bool create)
     {

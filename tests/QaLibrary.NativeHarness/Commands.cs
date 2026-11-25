@@ -29,6 +29,18 @@ public sealed class Commands
             runtime=(IDisposable)Activator.CreateInstance(type,Internal,null,new object[]{config,dispatch},null)!;
             var loaded=type.GetMethod("Load",Internal)!.Invoke(runtime,new object[]{tool,false})!;
             var assembly=(Assembly)loaded.GetType().GetField("Assembly",Internal)!.GetValue(loaded)!;
+            if(Environment.GetEnvironmentVariable("QA_CAPTURE_ONLY")=="1")
+            {
+                var captureConfig=JsonUtil.Read<InstallConfig>(File.ReadAllText(Path.Combine(root,"capture-request.json")));
+                string warehouse=WarehousePaths.Resolve(captureConfig.ContentRoot);
+                if(File.Exists(Path.Combine(warehouse,"Catalog","sync","pending.json"))||File.Exists(Path.Combine(warehouse,"Catalog","qa-transactions","ISO_QUANGANH.pending.json")))throw new InvalidOperationException("Finish pending operations before reading maintenance snapshot");
+                var clientType=assembly.GetType("Rainmaker.Library.QaClient",true)!;using var client=(IDisposable)Activator.CreateInstance(clientType,Internal,null,new object[]{captureConfig},null)!;
+                var task=(System.Threading.Tasks.Task<JObject>)clientType.GetMethod("Call",Internal)!.Invoke(client,new object?[]{"api/library-sync",null,System.Threading.CancellationToken.None})!;
+                var state=task.GetAwaiter().GetResult();var hints=state["items"]!.ToObject<System.Collections.Generic.List<LibrarySyncItem>>()!;
+                var snapshotType=assembly.GetType("Rainmaker.Library.QaCadSnapshot",true)!;
+                var snapshot=(JObject)snapshotType.GetMethod("CaptureSaved",BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,new object[]{captureConfig,state.Value<string>("source")!,hints})!;
+                JsonUtil.Atomic(Path.Combine(root,"capture-result.json"),snapshot);return;
+            }
             var managed=((IEnumerable)loaded.GetType().GetField("Commands",Internal)!.GetValue(loaded)!).Cast<object>().Select(c=>(string)c.GetType().GetField("Name",Internal)!.GetValue(c)!).ToArray();
             var plugin=assembly.GetType("Rainmaker.Library.LibraryPlugin",true)!;
             var current=plugin.GetField("Current",BindingFlags.Static|BindingFlags.NonPublic)!;
