@@ -40,6 +40,12 @@
         "dependencies": {
           "CAD.Contracts": "[1.0.0, )"
         }
+      },
+      "Rainmaker.Library.Reader": {
+        "type": "Project",
+        "dependencies": {
+          "Newtonsoft.Json": "[13.0.3, )"
+        }
       }
     }
   }

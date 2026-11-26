@@ -2,7 +2,7 @@ param([Parameter(Mandatory=$true)][string]$BuildDirectory,[switch]$Apply)
 $ErrorActionPreference='Stop'
 $build=[IO.Path]::GetFullPath($BuildDirectory)
 $manifest=Get-Content -LiteralPath (Join-Path $build 'manifest.json') -Raw -Encoding UTF8|ConvertFrom-Json
-if($manifest.component -ne 'Rainmaker.Axis' -or $manifest.version -ne '1.9.0' -or $manifest.readerProtocol -ne 1){throw 'Choose a verified Axis 1.9.0 Reader V1 build'}
+if($manifest.component -ne 'Rainmaker.Axis' -or $manifest.version -notin @('1.9.0','1.10.0') -or $manifest.readerProtocol -ne 1){throw 'Choose a verified Axis 1.9.0/1.10.0 Reader V1 build'}
 $package=Join-Path $build 'package'
 if(@(Get-ChildItem -LiteralPath $package -File).Count -ne @($manifest.files).Count){throw 'Unlisted package files'}
 foreach($entry in $manifest.files){
@@ -23,7 +23,7 @@ $catalog=[AICad.Contracts.CadToolCatalog]::new($install.ContentRoot)
 $index=$catalog.Read();$id='rainmaker-axis';$tool=$index.Items|Where-Object Id -eq $id
 if(-not $tool -or $tool.Kind -ne 'dotnet'){throw 'Existing Axis entry missing; select it in Manager'}
 $catalog.Demand($tool)|Out-Null
-if(-not $Apply){Write-Output ('Ready: '+$tool.RelativePath+' -> Axis 1.9.0; tool ID, settings, tabs and pins preserved');return}
+if(-not $Apply){Write-Output ('Ready: '+$tool.RelativePath+' -> Axis '+$manifest.version+'; tool ID, settings, tabs and pins preserved');return}
 if(Get-Process -Name acad -ErrorAction SilentlyContinue){throw 'Close AutoCAD before the coordinated Manager/Axis upgrade'}
 $updated=$catalog.Import((Join-Path $package 'Rainmaker.Axis.dll'),$index.Revision,$id)
 $catalog.Demand($updated)|Out-Null

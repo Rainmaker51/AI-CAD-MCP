@@ -16,6 +16,7 @@ public sealed partial class RainmakerAxis
  {
   var head=JObject.FromObject(library.Head).ToObject<BlockAsset>()!;
   var template=library.Template;DrawingPlan plan;
+  if(!p.Single&&p.FixedDimExtensions&&(!AxisLibrary.ValidDistance(p.DimExtensionLength)||p.DimExtensionLength>=library.Settings.DimOffset))throw new ArgumentException("Khoảng trục → chân dim phải lớn hơn 0 và nhỏ hơn khoảng trục → dim nhịp.");
   if(p.Single){
    var end=singleEnd??new Point3d(origin.X+4000,origin.Y,0);if(origin.DistanceTo(end)<1e-6||Math.Abs(origin.Z)>1e-6||Math.Abs(end.Z)>1e-6)throw new CadException("AXIS_POINTS","Hai điểm phải khác nhau và nằm trên WCS XY.");
    double pad=p.Scale*52.0;plan=new(){Scope=new(){new(Math.Min(origin.X,end.X)-pad,Math.Min(origin.Y,end.Y)-pad),new(Math.Max(origin.X,end.X)+pad,Math.Min(origin.Y,end.Y)-pad),new(Math.Max(origin.X,end.X)+pad,Math.Max(origin.Y,end.Y)+pad),new(Math.Min(origin.X,end.X)-pad,Math.Max(origin.Y,end.Y)+pad)}};
@@ -69,7 +70,7 @@ public sealed partial class RainmakerAxis
     dim.SetDimstyleData(record);
     dim.Annotative=record.Annotative==AnnotativeStates.True?AnnotativeStates.True:AnnotativeStates.False;
     dim.Dimscale=record.Annotative==AnnotativeStates.True?0:p.Scale;
-    if(p.FixedDimExtensions){if(!AxisLibrary.ValidDistance(p.DimExtensionLength))throw new ArgumentException("Chiều dài chân dim phải lớn hơn 0.");dim.DimfxlenOn=true;dim.Dimfxlen=p.DimExtensionLength/p.Scale;}
+    if(p.FixedDimExtensions){if(!AxisLibrary.ValidDistance(p.DimExtensionLength))throw new ArgumentException("Khoảng cách từ trục đến chân dim phải lớn hơn 0.");dim.DimfxlenOn=false;dim.Dimexo=p.DimExtensionLength/p.Scale;}
     if(record.Annotative==AnnotativeStates.True){var scale=EntityFactory.GetScale(db,p.Scale);if(!dim.HasContext(scale))dim.AddContext(scale);var current=db.Cannoscale;if(current.Name!=scale.Name&&dim.HasContext(current))dim.RemoveContext(current);}
     dim.RecomputeDimensionBlock(true);
    }else{EntityFactory.Finish(entity,op,plan,db,tx);EntityFactory.DemandBounds(entity,plan);}

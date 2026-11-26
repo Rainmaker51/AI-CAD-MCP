@@ -111,6 +111,7 @@ internal static class AxisNativeTests
    }
   }
   JsonUtil.Atomic(Path.Combine(root,"actual-dim-scale.json"),readings);
+  AxisAdoptionNativeTests.Run(root,selected);
   if(Environment.GetEnvironmentVariable("AICAD_AXIS_RESOURCE_TEST_ONLY")=="1"){
    JsonUtil.Atomic(Path.Combine(root,"axis-upgrade-results.json"),new{passed=true,resourceSelectionOnly=true,legacyRoleIgnored=true,reviewIgnored=true,settingsPersisted=true,axisLines=5,axisHeads=10,dimensions=10,saveReopen=true,annotativeContext=true});return;
   }

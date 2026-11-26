@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$ManagerDirectory,[Parameter(Mandatory=$true)][string]$AxisPackage,[string]$ReaderPackage='')
+param([Parameter(Mandatory=$true)][string]$ManagerDirectory,[Parameter(Mandatory=$true)][string]$AxisPackage,[string]$ReaderPackage='',[string]$AdoptionHarness='')
 $ErrorActionPreference='Stop'
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $physical=Join-Path $repo ('.tools/test-runs/axis-reader-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+[Guid]::NewGuid().ToString('N').Substring(0,6))
@@ -42,7 +42,9 @@ try{
  @{ContentRoot=$root;DataRoot=(Join-Path $root 'data');HostExecutable=(Join-Path $repo 'artifacts/p0-p6/Host/AICad.Host.exe')}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $root 'install.json') -Encoding UTF8
  [IO.File]::WriteAllText((Join-Path $root '.aicad-tools-test'),'Isolated Reader V1 Axis test')
  $command=if($ReaderPackage){'AICADDETACHEDREADERTEST'}else{'AICADAXISUPGRADETEST'}
- $script=@('_NETLOAD',('"'+(Join-Path $root 'AutoCAD/CAD.Bridge.AutoCAD.dll')+'"'),$command,'_QUIT','_Y')-join "`r`n"
+ $commands=@('_NETLOAD',('"'+(Join-Path $root 'AutoCAD/CAD.Bridge.AutoCAD.dll')+'"'),$command)
+ if($AdoptionHarness){$commands+=@('_NETLOAD',('"'+$AdoptionHarness+'"'),'AXISADOPTIONVERIFY')}
+ $script=($commands+@('_QUIT','_Y'))-join "`r`n"
  [IO.File]::WriteAllText((Join-Path $root 'test.scr'),$script+"`r`n")
  $env:AICAD_TOOL_TEST_ROOT=$root
  $console=Join-Path $env:ProgramFiles 'Autodesk/AutoCAD 2021/accoreconsole.exe'
@@ -51,5 +53,9 @@ try{
  if(-not(Test-Path -LiteralPath $result)){Get-Content -LiteralPath (Join-Path $root 'core.log') -Tail 30;throw 'No native test result'}
  $data=Get-Content -LiteralPath $result -Raw -Encoding UTF8;Write-Output $data
  if(-not($data|ConvertFrom-Json).passed){throw 'Axis native regression failed'}
+ if($AdoptionHarness){
+  $adoption=Get-Content -LiteralPath (Join-Path $root 'axis-adoption-results.json') -Raw -Encoding UTF8;Write-Output $adoption
+  if(-not($adoption|ConvertFrom-Json).passed){throw 'Axis adoption/dimension native regression failed'}
+ }
  Write-Output ('Evidence: '+$physical)
 }finally{Remove-Item Env:AICAD_TOOL_TEST_ROOT -ErrorAction SilentlyContinue;& subst ($letter+':') /D}

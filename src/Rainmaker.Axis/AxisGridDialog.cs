@@ -32,7 +32,7 @@ internal sealed class AxisGridParameters
     public bool CleanWallJunctions;
     public double ColumnWallInset=110;
     public bool ColumnFaceAnchors,FixedDimExtensions;
-    public double DimExtensionLength=300;
+    public double DimExtensionLength=500;
     public string GridName="";
     public AxisEnvelope? Envelope;
     public System.Collections.Generic.Dictionary<string,ColumnOptions> ColumnOverrides=new();

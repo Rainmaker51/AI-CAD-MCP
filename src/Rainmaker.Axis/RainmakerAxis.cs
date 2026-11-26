@@ -53,9 +53,15 @@ public sealed partial class RainmakerAxis
               var pick=editor.GetEntity("\nChọn một đối tượng thuộc lưới cần sửa: ");if(pick.Status!=PromptStatus.OK)return;editing=GridStore.Read(doc.Database,pick.ObjectId);if(editing==null){System.Windows.MessageBox.Show("Lưới chưa có dữ liệu quản lý. Dùng Nhận lưới cũ và chọn đầy đủ các đối tượng cần thay.");}continue;
              }
              if(dialog.Action=="Adopt"){
-              var selection=editor.GetSelection(new PromptSelectionOptions{MessageForAdding="\nChọn TOÀN BỘ trục/đầu trục/dim cũ muốn nhận quản lý; các đối tượng đã chọn sẽ được thay khi áp dụng: "});if(selection.Status!=PromptStatus.OK)return;
-              if(System.Windows.MessageBox.Show("Nhận quản lý "+selection.Value.Count+" đối tượng được chọn? Sau đó kiểm tra nhịp, ký hiệu, tỷ lệ và tài nguyên trong preview. Chưa ghi thay đổi ở bước này.","Nhận lưới cũ",System.Windows.MessageBoxButton.YesNo)!=System.Windows.MessageBoxResult.Yes)return;
-              editing=GridStore.Adopt(doc.Database,selection.Value.GetObjectIds(),new AxisLibrary(plugin.Config.ContentRoot).Load());continue;
+              try{
+               var selection=editor.GetSelection(new PromptSelectionOptions{MessageForAdding="\nQuét chọn các Line/Polyline ngang, đứng giao nhau làm trục (có thể chọn thêm đầu trục/dim cũ): "});
+               if(selection.Status!=PromptStatus.OK)continue;
+               var recognized=GridStore.Adopt(doc.Database,selection.Value.GetObjectIds(),new AxisLibrary(plugin.Config.ContentRoot).Load());
+               recognized.Parameters.Scale=(int)(currentScale>=2&&currentScale<=1000?Math.Round(currentScale):60);
+               if(System.Windows.MessageBox.Show($"Nhận {recognized.Parameters.XLabels.Length} trục đứng, {recognized.Parameters.YLabels.Length} trục ngang từ {recognized.Members.Count} đối tượng.\nBỏ qua {recognized.IgnoredSelectionCount} đối tượng khác; chúng được giữ nguyên.\nKiểm tra preview rồi bổ sung đầu trục, dim, cột hoặc tường. Chỉ các đối tượng đã nhận được thay khi bấm ghi. Chưa thay đổi DWG ở bước này.","Nhận lưới từ Line / Polyline",System.Windows.MessageBoxButton.YesNo)==System.Windows.MessageBoxResult.Yes)editing=recognized;
+              }catch(CadException error){System.Windows.MessageBox.Show(error.Message,"Chưa nhận được lưới");}
+              catch(Autodesk.AutoCAD.Runtime.Exception error){System.Windows.MessageBox.Show(error.Message,"Chưa nhận được lưới");}
+              continue;
              }
              parameters=dialog.Parameters!;single=parameters.Single;break;
             }

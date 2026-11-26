@@ -2,6 +2,21 @@ using System;
 using System.Linq;
 using Rainmaker.Axis;
 
+var baseGrid=new[]{new AxisSegment(0,-100,0,3000),new AxisSegment(4000,0,4000,1500),new AxisSegment(4000,1500,4000,3000),new AxisSegment(-100,0,4100,0),new AxisSegment(0,3000,4000,3000)};
+var recognized=AxisGridRecognition.Read(baseGrid);
+if(!recognized.X.SequenceEqual(new double[]{0,4000})||!recognized.Y.SequenceEqual(new double[]{0,3000}))throw new Exception("Fragmented grid recognition failed");
+void RecognitionReject(AxisSegment[] lines){try{AxisGridRecognition.Read(lines);}catch(ArgumentException){return;}throw new Exception("Invalid old grid accepted");}
+RecognitionReject(baseGrid.Concat(new[]{new AxisSegment(0,0,100,100)}).ToArray());
+RecognitionReject(new[]{baseGrid[0],new AxisSegment(4000,0,4000,1400),new AxisSegment(4000,1500,4000,3000),baseGrid[3],baseGrid[4]});
+RecognitionReject(new[]{baseGrid[0],baseGrid[3]});
+var near=AxisGridRecognition.Read(baseGrid.Concat(new[]{new AxisSegment(50,0,50,3000)}));
+if(near.X.Length!=3||near.X[1]!=50)throw new Exception("Distinct 50 mm axes were merged");
+var duplicateGrid=AxisGridRecognition.Read(baseGrid.Concat(baseGrid));
+if(duplicateGrid.X.Length!=2||duplicateGrid.Y.Length!=2)throw new Exception("Duplicate segments created duplicate axes");
+RecognitionReject(baseGrid.Concat(new[]{new AxisSegment(double.NaN,0,0,3000)}).ToArray());
+RecognitionReject(baseGrid.Concat(new[]{new AxisSegment(8000,0,8000,3000)}).ToArray());
+Console.WriteLine("PASS: joined/reversed/duplicate segments, distinct 50mm axes, disconnected and diagonal grid rejection");
+
 void Check(bool condition)
 {
     if (!condition) throw new Exception("Axis grid regression failed.");

@@ -6,5 +6,6 @@
   <ItemGroup>
     <Compile Include="../../src/Rainmaker.Axis/AxisGridLayout.cs" Link="AxisGridLayout.cs" />
     <Compile Include="../../src/Rainmaker.Axis/AxisEnvelope.cs" Link="AxisEnvelope.cs" />
+    <Compile Include="../../src/Rainmaker.Axis/AxisGridRecognition.cs" Link="AxisGridRecognition.cs" />
   </ItemGroup>
 </Project>
